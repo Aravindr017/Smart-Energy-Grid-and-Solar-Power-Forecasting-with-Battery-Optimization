@@ -85,10 +85,15 @@ plant_id = st.sidebar.selectbox(
     options=[1, 2],
     format_func=lambda x: f"Plant {x} (ID: {3418353 if x == 1 else 4135001})"
 )
+
 granularity = st.sidebar.selectbox(
-    "Temporal Resolution",
-    options=["hourly", "15min_plant"],
-    format_func=lambda x: "Hourly Aggregation" if x == "hourly" else "15-Minute Resolution"
+    "Dataset Granularity",
+    options=["15min", "15min_plant", "hourly"],
+    format_func=lambda x: (
+        "15-Minute Inverter Level (68k Records)" if x == "15min"
+        else ("15-Minute Plant Aggregated (3.2k Records)" if x == "15min_plant"
+        else "Hourly Plant Aggregated (816 Records)")
+    )
 )
 
 st.sidebar.markdown("---")
@@ -122,9 +127,38 @@ def get_data(pid: int, freq: str):
         return None
 
 
-df = get_data(plant_id, granularity)
+df_raw_loaded = get_data(plant_id, granularity)
 
-if df is not None:
+if df_raw_loaded is not None:
+    # Optional Inverter Filter if inverter-level data is loaded
+    selected_inverter = "All Inverters (Plant Aggregate)"
+    if "source_key" in df_raw_loaded.columns:
+        inverter_list = sorted(df_raw_loaded["source_key"].unique())
+        selected_inverter = st.sidebar.selectbox(
+            "Inverter Unit",
+            options=["All Inverters (Plant Aggregate)"] + inverter_list
+        )
+
+    # Filter or aggregate df according to inverter selection
+    if selected_inverter != "All Inverters (Plant Aggregate)":
+        df = df_raw_loaded[df_raw_loaded["source_key"] == selected_inverter].copy()
+    elif "source_key" in df_raw_loaded.columns:
+        # Aggregate to plant-level sum for generation and mean for weather
+        numeric_weather_cols = [c for c in [
+            "sensor_irradiation", "sensor_temperature", "module_temperature",
+            "openmeteo_temperature", "humidity", "ghi", "direct_radiation", "dhi", "dni", "wind_speed_10m"
+        ] if c in df_raw_loaded.columns]
+        
+        agg_rules = {"ac_power": "sum", "dc_power": "sum"}
+        if "daily_yield" in df_raw_loaded.columns:
+            agg_rules["daily_yield"] = "sum"
+        for w in numeric_weather_cols:
+            agg_rules[w] = "mean"
+
+        df = df_raw_loaded.groupby("time").agg(agg_rules).reset_index()
+    else:
+        df = df_raw_loaded.copy()
+
     # Key Performance Indicators
     total_records = len(df)
     peak_ac = df["ac_power"].max() if "ac_power" in df.columns else 0.0
@@ -134,8 +168,9 @@ if df is not None:
     if "ac_energy_kwh_est" in df.columns:
         total_energy_mwh = df["ac_energy_kwh_est"].sum() / 1000.0
     else:
-        # 1-hour interval approximation
-        total_energy_mwh = (df["ac_power"].sum() * (1.0 if granularity == "hourly" else 0.25)) / 1000.0
+        # Calculate from interval duration
+        time_diff_hours = 0.25 if "15min" in granularity else 1.0
+        total_energy_mwh = (df["ac_power"].sum() * time_diff_hours) / 1000.0
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -258,11 +293,34 @@ if df is not None:
         )
         st.plotly_chart(fig_diurnal, use_container_width=True)
 
+        # Weather & Sensor Correlation Analysis
+        st.markdown("#### Target & Feature Correlation Matrix")
+        corr_file = root_dir / "reports" / f"plant{plant_id}_correlations.csv"
+        if corr_file.exists():
+            corr_df = pd.read_csv(corr_file, index_col=0)
+            fig_corr = go.Figure(data=go.Heatmap(
+                z=corr_df.values,
+                x=corr_df.columns,
+                y=corr_df.index,
+                colorscale="RdBu",
+                reversescale=True,
+                zmin=-1.0,
+                zmax=1.0,
+                colorbar=dict(title="Pearson r")
+            ))
+            fig_corr.update_layout(
+                xaxis=dict(tickangle=-45),
+                margin=dict(l=40, r=40, t=20, b=40),
+                template="plotly_white",
+                height=450
+            )
+            st.plotly_chart(fig_corr, use_container_width=True)
+
     # TAB 2: Forecast Benchmarks
     with tab2:
         st.markdown("#### Out-of-Sample Evaluation: Actual Generation vs. Baseline Models")
         st.caption(
-            "Evaluation performed over the final 7 consecutive days (168 hourly time steps). "
+            "Evaluation performed over the final 7 consecutive days (672 time steps per inverter). "
             "Nighttime zero-inflation is strictly enforced during non-generating hours."
         )
 
@@ -298,8 +356,22 @@ if df is not None:
             )
 
         if pred_file.exists():
-            df_preds = pd.read_csv(pred_file)
-            df_preds["time"] = pd.to_datetime(df_preds["time"])
+            df_preds_raw = pd.read_csv(pred_file)
+            df_preds_raw["time"] = pd.to_datetime(df_preds_raw["time"])
+
+            # Filter or aggregate predictions matching the sidebar inverter selection
+            if "source_key" in df_preds_raw.columns and selected_inverter != "All Inverters (Plant Aggregate)":
+                df_preds = df_preds_raw[df_preds_raw["source_key"] == selected_inverter].sort_values("time")
+                chart_sub = f"Showing individual inverter output for {selected_inverter}."
+            elif "source_key" in df_preds_raw.columns:
+                num_cols = [c for c in df_preds_raw.columns if c not in ["time", "source_key"]]
+                df_preds = df_preds_raw.groupby("time")[num_cols].sum().reset_index().sort_values("time")
+                chart_sub = "Showing total plant aggregate output (sum of all 22 inverters)."
+            else:
+                df_preds = df_preds_raw.sort_values("time")
+                chart_sub = "Showing plant-level output."
+
+            st.caption(chart_sub)
 
             fig_pred = go.Figure()
             fig_pred.add_trace(go.Scatter(
@@ -328,7 +400,16 @@ if df is not None:
                     line=dict(color="#10b981", width=1.5, dash="dot"),
                     hovertemplate="%{x}<br>Linear: %{y:,.1f} kW<extra></extra>"
                 ))
-            if "pred_persistence_(24h_lag)" in df_preds.columns:
+            if "pred_persistence_24h_lag" in df_preds.columns:
+                fig_pred.add_trace(go.Scatter(
+                    x=df_preds["time"],
+                    y=df_preds["pred_persistence_24h_lag"],
+                    mode="lines",
+                    name="Persistence (24h Lag)",
+                    line=dict(color="#94a3b8", width=1.25, dash="dot"),
+                    hovertemplate="%{x}<br>Persistence: %{y:,.1f} kW<extra></extra>"
+                ))
+            elif "pred_persistence_(24h_lag)" in df_preds.columns:
                 fig_pred.add_trace(go.Scatter(
                     x=df_preds["time"],
                     y=df_preds["pred_persistence_(24h_lag)"],

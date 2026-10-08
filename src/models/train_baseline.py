@@ -29,11 +29,12 @@ def main():
     all_metrics = []
 
     for plant_id in [1, 2]:
-        print(f"\n--- Benchmarking Plant {plant_id} (Hourly Resolution, 7-Day Out-of-Sample Test) ---")
-        df_hourly = load_processed_handoff(plant_id=plant_id, freq="hourly")
+        print(f"\n--- Benchmarking Plant {plant_id} (15-Minute Resolution, Inverter-Level 68k Dataset) ---")
+        df_15min = load_processed_handoff(plant_id=plant_id, freq="15min")
+        print(f"Loaded {len(df_15min):,} observations across {df_15min['source_key'].nunique()} inverters.")
         
         metrics_df, test_df, preds_dict = run_week1_baseline_benchmark(
-            df_hourly,
+            df_15min,
             plant_id=plant_id,
             test_days=7,
         )
@@ -42,13 +43,18 @@ def main():
         print(metrics_df.to_string(index=False))
 
         # Save predictions for test horizon
-        pred_export = pd.DataFrame({"time": test_df["time"], "actual_ac_power": test_df["ac_power"]})
+        pred_dict_export = {"time": test_df["time"], "actual_ac_power": test_df["ac_power"]}
+        if "source_key" in test_df.columns:
+            pred_dict_export["source_key"] = test_df["source_key"]
+
         for m_name, preds in preds_dict.items():
-            pred_export[f"pred_{m_name.lower().replace(' ', '_')}"] = preds
-            
+            col_name = f"pred_{m_name.lower().replace(' ', '_').replace('(', '').replace(')', '')}"
+            pred_dict_export[col_name] = preds
+
+        pred_export = pd.DataFrame(pred_dict_export)
         pred_csv = reports_dir / f"plant{plant_id}_week1_baseline_predictions.csv"
         pred_export.to_csv(pred_csv, index=False)
-        print(f"✔ Saved test predictions to: {pred_csv}")
+        print(f"Saved {len(pred_export):,} test predictions to: {pred_csv}")
 
         metrics_df["plant_id"] = plant_id
         all_metrics.append(metrics_df)

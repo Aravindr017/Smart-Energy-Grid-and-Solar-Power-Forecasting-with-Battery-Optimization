@@ -77,24 +77,25 @@ def load_raw_openmeteo(plant_id: int = 1) -> pd.DataFrame:
     return pd.read_csv(filepath, skiprows=3)
 
 
-def load_processed_handoff(plant_id: int = 1, freq: str = "hourly") -> pd.DataFrame:
+def load_processed_handoff(plant_id: int = 1, freq: str = "15min") -> pd.DataFrame:
     """
     Loads post-EDA AI/ML handoff datasets.
     
     Args:
         plant_id: 1 or 2
-        freq: 'hourly', '15min_plant', or '15min_inverter'
+        freq: '15min' (or '15min_inverter' - 68k rows), '15min_plant' (3.2k rows), or 'hourly' (816 rows)
     """
     _, processed_dir = get_data_dirs()
     
     mapping = {
-        "hourly": f"plant{plant_id}_ai_ml_handoff_hourly.csv",
-        "15min_plant": f"plant{plant_id}_ai_ml_handoff_15min_plantlevel.csv",
+        "15min": f"plant{plant_id}_ai_ml_handoff_15min.csv",
         "15min_inverter": f"plant{plant_id}_ai_ml_handoff_15min.csv",
+        "15min_plant": f"plant{plant_id}_ai_ml_handoff_15min_plantlevel.csv",
+        "hourly": f"plant{plant_id}_ai_ml_handoff_hourly.csv",
     }
     
     if freq not in mapping:
-        raise ValueError(f"Unsupported frequency: {freq}. Choose from {list(mapping.keys())}")
+        raise ValueError(f"Unsupported frequency: '{freq}'. Choose from {list(mapping.keys())}")
         
     filepath = processed_dir / mapping[freq]
     if not filepath.exists():

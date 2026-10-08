@@ -135,28 +135,43 @@ def create_feature_pipeline(
     if "module_temperature" in data.columns and "sensor_temperature" in data.columns:
         data["temp_diff_module_sensor"] = data["module_temperature"] - data["sensor_temperature"]
 
-    # Rolling solar irradiance statistics (causal / backward-looking)
+    # Identify temporal interval (hourly vs 15-minute)
+    time_diffs = data.sort_values("time")["time"].drop_duplicates().diff().dropna()
+    is_15min = (time_diffs.median().total_seconds() < 2000) if len(time_diffs) > 0 else False
+    steps_per_hour = 4 if is_15min else 1
+    steps_per_day = 96 if is_15min else 24
+
+    # Rolling solar irradiance statistics (computed per unique timestamp to prevent multi-inverter duplication)
+    unique_times = pd.Series(data["time"].unique()).sort_values()
     if "ghi" in data.columns:
-        data["ghi_rolling_mean_3h"] = data["ghi"].rolling(window=3, min_periods=1).mean()
-        data["ghi_rolling_std_3h"] = data["ghi"].rolling(window=3, min_periods=1).std().fillna(0.0)
-        data["ghi_rolling_mean_6h"] = data["ghi"].rolling(window=6, min_periods=1).mean()
+        ghi_by_time = data.groupby("time")["ghi"].first()
+        ghi_rolling_3h = ghi_by_time.rolling(window=3 * steps_per_hour, min_periods=1).mean()
+        ghi_rolling_6h = ghi_by_time.rolling(window=6 * steps_per_hour, min_periods=1).mean()
+        data["ghi_rolling_mean_3h"] = data["time"].map(ghi_rolling_3h)
+        data["ghi_rolling_mean_6h"] = data["time"].map(ghi_rolling_6h)
 
     if "sensor_irradiation" in data.columns:
-        data["irrad_rolling_mean_3h"] = data["sensor_irradiation"].rolling(window=3, min_periods=1).mean()
+        irr_by_time = data.groupby("time")["sensor_irradiation"].first()
+        irr_rolling_3h = irr_by_time.rolling(window=3 * steps_per_hour, min_periods=1).mean()
+        data["irrad_rolling_mean_3h"] = data["time"].map(irr_rolling_3h)
 
-    # Target lag features (for baseline and autoregressive models)
+    # Inverter encoding if source_key is present
+    if "source_key" in data.columns:
+        data["inverter_code"] = data["source_key"].astype("category").cat.codes
+
+    # Target lag features (grouped by source_key if multi-inverter, otherwise simple shift)
     if include_lags and target_col in data.columns:
-        data[f"{target_col}_lag_1h"] = data[target_col].shift(1)
-        data[f"{target_col}_lag_24h"] = data[target_col].shift(24)
-        data[f"{target_col}_lag_48h"] = data[target_col].shift(48)
-        
-        # 24h rolling max generation
-        data[f"{target_col}_rolling_max_24h"] = (
-            data[target_col].shift(1).rolling(window=24, min_periods=1).max()
-        )
+        if "source_key" in data.columns:
+            group = data.groupby("source_key")[target_col]
+            data[f"{target_col}_lag_1step"] = group.shift(1)
+            data[f"{target_col}_lag_1h"] = group.shift(steps_per_hour)
+            data[f"{target_col}_lag_24h"] = group.shift(steps_per_day)
+        else:
+            data[f"{target_col}_lag_1step"] = data[target_col].shift(1)
+            data[f"{target_col}_lag_1h"] = data[target_col].shift(steps_per_hour)
+            data[f"{target_col}_lag_24h"] = data[target_col].shift(steps_per_day)
 
     # Daylight indicator (Boolean mask)
-    # Solar generation occurs strictly when elevation > 0 and irradiance > 0
     is_daylight = (data["solar_elevation_deg"] > 0)
     if "ghi" in data.columns:
         is_daylight = is_daylight & (data["ghi"] > 0)

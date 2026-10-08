@@ -87,10 +87,18 @@ def main():
         print("\n❌ Pipeline stopped: Baseline model training failed.")
         sys.exit(1)
 
+    # Step 3: Compute Correlations and Generate Analytical Plots
+    print_banner("STEP 3: Generating Correlation Matrices & Plots (reports/figures/)")
+    reports_script = PROJECT_ROOT / "src" / "visualization" / "reports_generator.py"
+    success = run_command([python_exe, str(reports_script)], "Analytical Reports & Figures Generation")
+    if not success:
+        print("\n❌ Warning: Figure generation encountered an issue.")
+
     print_banner("Pipeline Execution Succeeded!")
     print("✔ Datasets verified.")
     print("✔ Out-of-sample 7-day baseline benchmarks trained and evaluated.")
-    print("✔ Prediction outputs saved to 'reports/' directory.")
+    print("✔ Correlation matrices saved to 'reports/'.")
+    print("✔ Publication-quality analytical figures saved to 'reports/figures/'.")
 
     # Step 3: Launch Streamlit App if requested
     if args.app:
