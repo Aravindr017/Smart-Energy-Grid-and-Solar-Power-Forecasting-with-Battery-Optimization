@@ -1,0 +1,106 @@
+# ==========================================
+# Python Bytecode, Cache & Distribution
+# ==========================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ==========================================
+# Virtual Environments
+# ==========================================
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# ==========================================
+# Jupyter Notebooks & Checkpoints
+# ==========================================
+.ipynb_checkpoints/
+*-checkpoint.ipynb
+
+# ==========================================
+# IDEs, Editors & OS Files
+# ==========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ==========================================
+# Environment Variables & Secrets
+# ==========================================
+.env
+.env.*
+!.env.example
+*.env
+.streamlit/secrets.toml
+
+# ==========================================
+# Testing & Code Quality
+# ==========================================
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# ==========================================
+# Model Weights & Heavy Binary Artifacts
+# ==========================================
+# Ignore trained model weights/checkpoints to prevent bloated repo
+models/*.joblib
+models/*.pkl
+models/*.pickle
+models/*.h5
+models/*.onnx
+
+# ==========================================
+# Temporary Files, Logs & Scratchpads
+# ==========================================
+*.log
+scratch/
+tmp/
+temp/
+
+# ==========================================
+# Data Policy
+# ==========================================
+# Keep directory structure intact via .gitkeep
+!.gitkeep
+!data/**/.gitkeep
+
+# NOTE ON DATA TRACKING:
+# The current datasets (~34MB total, max file ~12MB) are within GitHub's 100MB limit.
+# If you want to EXCLUDE raw and processed CSVs from GitHub, uncomment the lines below:
+# data/raw/*.csv
+# data/processed/*.csv
+# !data/processed/AI_ML_TEAM_DATASET_GUIDE.pdf

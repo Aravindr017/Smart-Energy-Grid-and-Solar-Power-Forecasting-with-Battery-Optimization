@@ -1,0 +1,35 @@
+# ==============================================================================
+# Smart Energy Grid & Solar Power Forecasting with Battery Optimization
+# Project Requirements
+# ==============================================================================
+
+# Core Data Manipulation & Scientific Computing
+numpy>=1.26.0,<2.0.0
+pandas>=2.1.0,<3.0.0
+scipy>=1.11.0,<2.0.0
+
+# Visualization & Reporting
+matplotlib>=3.8.0,<4.0.0
+seaborn>=0.13.0,<1.0.0
+plotly>=5.18.0,<6.0.0
+
+# Machine Learning & Time-Series Forecasting
+scikit-learn>=1.3.0,<2.0.0
+lightgbm>=4.3.0,<5.0.0
+xgboost>=2.0.0,<3.0.0
+prophet>=1.1.5,<2.0.0
+
+# Mathematical Optimization (Linear Programming for Battery Arbitrage)
+PuLP>=2.8.0,<3.0.0
+
+# Interactive Web Application & Dashboard
+streamlit>=1.32.0,<2.0.0
+
+# API Requests & Utilities
+requests>=2.31.0
+openpyxl>=3.1.0
+
+# Jupyter Notebook Execution & Development
+ipykernel>=6.29.0
+jupyter>=1.0.0
+nbformat>=5.9.0
