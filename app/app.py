@@ -122,13 +122,77 @@ if df is not None:
         st.dataframe(df.head(50), use_container_width=True)
 
     with tab2:
-        st.info("Week 2 Deliverable: Multi-step 24-hour LightGBM, XGBoost, and Prophet models with daylight RMSE & MAPE evaluation.")
+        st.subheader("Week 1 AI/ML Baseline Forecasting Benchmark")
         st.markdown(
             """
-            - **Feature Engineering Pipeline:** Solar zenith angle, rolling irradiance averages (3h, 6h), and lag terms ($t-1h, t-24h$).
-            - **Nighttime Zero-Inflation:** Strictly enforces 0 kW output when solar elevation is below horizon or irradiance is zero.
+            Multi-step day-ahead forecasting benchmarks evaluated across a **7-day out-of-sample test horizon (168 hours)** 
+            with **strict chronological splitting** and **physical nighttime zero-inflation**.
             """
         )
+
+        pred_file = root_dir / "reports" / f"plant{plant_id}_week1_baseline_predictions.csv"
+        metrics_file = root_dir / "reports" / "week1_baseline_metrics_summary.csv"
+
+        if metrics_file.exists():
+            summary_df = pd.read_csv(metrics_file)
+            plant_metrics = summary_df[summary_df["plant_id"] == plant_id].drop(columns=["plant_id"])
+            st.markdown(f"#### 🏆 Model Performance Benchmark — Plant {plant_id}")
+            st.dataframe(
+                plant_metrics.style.format({
+                    "daylight_rmse": "{:.2f} kW",
+                    "daylight_mape_pct": "{:.2f}%",
+                    "daylight_mae": "{:.2f} kW",
+                    "daylight_r2": "{:.4f}",
+                    "rmse_overall": "{:.2f} kW",
+                    "mae_overall": "{:.2f} kW",
+                    "r2_overall": "{:.4f}",
+                    "daylight_nrmse_pct": "{:.2f}%"
+                }),
+                use_container_width=True
+            )
+
+        if pred_file.exists():
+            df_preds = pd.read_csv(pred_file)
+            df_preds["time"] = pd.to_datetime(df_preds["time"])
+
+            st.markdown(f"#### 📈 Out-of-Sample 7-Day Forecast Horizon (Actual vs Baselines)")
+            fig_fc = go.Figure()
+            fig_fc.add_trace(go.Scatter(
+                x=df_preds["time"],
+                y=df_preds["actual_ac_power"],
+                mode="lines",
+                name="Actual Power (kW)",
+                line=dict(color="#00FFA3", width=2.5)
+            ))
+            if "pred_ridge_regression" in df_preds.columns:
+                fig_fc.add_trace(go.Scatter(
+                    x=df_preds["time"],
+                    y=df_preds["pred_ridge_regression"],
+                    mode="lines",
+                    name="Ridge Regression Baseline",
+                    line=dict(color="#FF4B4B", width=2, dash="dash")
+                ))
+            if "pred_persistence_(24h_lag)" in df_preds.columns:
+                fig_fc.add_trace(go.Scatter(
+                    x=df_preds["time"],
+                    y=df_preds["pred_persistence_(24h_lag)"],
+                    mode="lines",
+                    name="Persistence (24h Lag)",
+                    line=dict(color="#FFA500", width=1.5, dash="dot")
+                ))
+
+            fig_fc.update_layout(
+                title=f"Plant {plant_id}: 7-Day Out-of-Sample Actual vs. Baseline Predictions",
+                xaxis=dict(title="Timestamp", rangeslider=dict(visible=True), type="date"),
+                yaxis=dict(title="AC Power (kW)"),
+                hovermode="x unified",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=40, r=40, t=50, b=40),
+                template="plotly_dark"
+            )
+            st.plotly_chart(fig_fc, use_container_width=True)
+        else:
+            st.info("Run `python src/models/train_baseline.py` to generate baseline prediction reports.")
 
     with tab3:
         st.info("Week 2-3 Deliverable: Duck Curve explorer & PuLP Linear Programming battery arbitrage scheduler.")

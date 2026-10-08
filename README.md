@@ -131,10 +131,32 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 4. Running the Notebooks
+### 4. Run Everything with One Command (Cross-Platform)
+
+We provide one-click runners for both Windows and macOS/Linux:
+
+- **Any Platform (Python):**
+  ```bash
+  python run_all.py         # Runs validation tests + baseline training
+  python run_all.py --app   # Runs pipeline AND launches the Streamlit app
+  ```
+
+- **macOS / Linux:**
+  ```bash
+  ./run_all.sh              # Double-click or run from terminal
+  ./run_all.sh --app        # With Streamlit dashboard
+  ```
+
+- **Windows:**
+  ```cmd
+  run_all.bat               # Double-click in Explorer or run from Command Prompt
+  run_all.bat --app         # With Streamlit dashboard
+  ```
+
+### 5. Running the Notebooks
 The notebooks in `notebooks/` are configured to automatically resolve datasets in `data/raw/` and output to `data/processed/` whether executed locally in VS Code / Antigravity IDE or in Google Colab:
 ```bash
-jupyter notebook notebooks/PLANT1.ipynb
+jupyter notebook notebooks/01_week1_ai_ml_baseline.ipynb
 ```
 
 ### 5. Accessing Data Programmatically

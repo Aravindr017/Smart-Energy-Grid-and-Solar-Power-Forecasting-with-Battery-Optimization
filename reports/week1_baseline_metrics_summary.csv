@@ -1,0 +1,9 @@
+model,daylight_rmse,daylight_mape_pct,daylight_mae,daylight_r2,rmse_overall,mae_overall,r2_overall,daylight_nrmse_pct,plant_id
+Ridge Regression,2528.86,32.76,1945.31,0.8779,1861.19,1053.71,0.9411,9.62,1
+Linear Regression,2587.28,30.44,1948.68,0.8722,1904.19,1055.53,0.9383,9.84,1
+Diurnal Hourly Mean,3431.32,31.68,2572.6,0.7753,2525.39,1393.49,0.8915,13.05,1
+Persistence (24h Lag),3964.16,29.76,2756.56,0.7001,2917.54,1493.13,0.8552,15.08,1
+Ridge Regression,2124.38,31.99,1626.99,0.7872,1563.5,881.29,0.9112,12.63,2
+Linear Regression,2179.38,33.43,1681.89,0.7761,1603.98,911.02,0.9065,12.96,2
+Diurnal Hourly Mean,2923.75,37.89,2184.44,0.597,2151.82,1183.24,0.8317,17.38,2
+Persistence (24h Lag),3218.13,37.63,2437.93,0.5118,2368.48,1320.55,0.7962,19.13,2
