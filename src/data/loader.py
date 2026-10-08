@@ -12,19 +12,17 @@ import pandas as pd
 def get_project_root() -> Path:
     """
     Locates the project root directory by searching upward from the current file
-    or working directory for recognizable markers (.git, requirements.txt, or data folder).
+    or working directory for recognizable markers (.git, requirements.txt, or data/raw folder).
     """
-    # Try relative to this file
     current = Path(__file__).resolve().parent
     for _ in range(5):
-        if (current / "requirements.txt").exists() or (current / "data").exists() or (current / ".git").exists():
+        if (current / "requirements.txt").exists() or (current / "data" / "raw").exists() or (current / ".git").exists():
             return current
         current = current.parent
 
-    # Fallback to current working directory
     cwd = Path.cwd()
     for _ in range(5):
-        if (cwd / "requirements.txt").exists() or (cwd / "data").exists() or (cwd / ".git").exists():
+        if (cwd / "requirements.txt").exists() or (cwd / "data" / "raw").exists() or (cwd / ".git").exists():
             return cwd
         cwd = cwd.parent
 
