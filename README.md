@@ -68,20 +68,29 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
 │   ├── models/                                # Model pipelines, training & evaluation
 │   │   ├── __init__.py
 │   │   ├── baseline.py                        # Temporal split, persistence & regression baselines
+│   │   ├── forecasting.py                     # LightGBM GBDT & Prophet forecasters
 │   │   ├── metrics.py                         # Daylight RMSE, Daylight MAPE, nRMSE, R²
-│   │   └── train_baseline.py                  # Benchmark runner for Plant 1 and Plant 2
+│   │   ├── train_baseline.py                  # Week 1 benchmark runner
+│   │   └── train_forecasting.py               # Week 2 advanced forecasting & battery runner
+│   ├── optimization/                          # Mathematical optimization & dispatch
+│   │   ├── __init__.py
+│   │   └── battery_lp.py                      # PuLP Linear Programming battery arbitrage
 │   └── visualization/                         # Plotting & reporting utilities
 │       ├── __init__.py
 │       └── reports_generator.py               # Automated correlation & figure generator
 │
 ├── app/                                       # Streamlit web application
 │   ├── __init__.py
-│   └── app.py                                 # Enterprise dashboard entrypoint
+│   └── app.py                                 # Enterprise dashboard entrypoint (with BESS simulator)
 │
 ├── reports/                                   # Evaluation outputs & publication figures
-│   ├── week1_baseline_metrics_summary.csv     # Model evaluation leaderboard
-│   ├── plant1_week1_baseline_predictions.csv  # 14,740 test horizon predictions (Plant 1)
-│   ├── plant2_week1_baseline_predictions.csv  # 14,784 test horizon predictions (Plant 2)
+│   ├── week1_baseline_metrics_summary.csv     # Week 1 baseline evaluation leaderboard
+│   ├── week2_forecasting_metrics_summary.csv  # Week 2 forecasting leaderboard
+│   ├── plant1_week2_forecasting_predictions.csv # 14,740 test horizon predictions (Plant 1)
+│   ├── plant2_week2_forecasting_predictions.csv # 14,784 test horizon predictions (Plant 2)
+│   ├── plant1_lightgbm_feature_importance.csv # LightGBM feature gain rankings (Plant 1)
+│   ├── plant2_lightgbm_feature_importance.csv # LightGBM feature gain rankings (Plant 2)
+│   ├── sample_battery_dispatch_plant1.csv     # 24-hour hour-by-hour BESS optimal schedule
 │   ├── plant1_correlations.csv                # Correlation matrix (Plant 1)
 │   ├── plant2_correlations.csv                # Correlation matrix (Plant 2)
 │   └── figures/                               # Exported publication plots (300 DPI)
@@ -98,7 +107,8 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
 │
 └── tests/                                     # Automated test suites
     ├── __init__.py
-    └── test_data_loader.py                    # Dataset validation and schema integrity tests
+    ├── test_data_loader.py                    # Dataset validation and schema integrity tests
+    └── test_week2.py                          # Week 2 forecaster and PuLP LP unit tests
 ```
 
 ---
