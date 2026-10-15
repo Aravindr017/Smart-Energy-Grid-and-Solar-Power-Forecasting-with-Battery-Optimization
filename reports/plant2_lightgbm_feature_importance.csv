@@ -1,0 +1,16 @@
+feature,importance
+ac_power_lag_1step,1268
+cos_zenith,1068
+ghi_rolling_mean_3h,1009
+ac_power_lag_1h,789
+cloud_cover_index,600
+ghi,569
+dhi,558
+openmeteo_temperature,523
+ac_power_lag_24h,496
+hour_sin,436
+direct_radiation,425
+humidity,323
+inverter_code,309
+hour_cos,245
+solar_elevation_deg,226

@@ -68,11 +68,17 @@ def main():
     print(f"Python Interpreter: {python_exe}")
 
     # Step 1: Run Data Loader & Dataset Integrity Tests
-    print_banner("STEP 1: Validating Raw & Processed Datasets")
+    print_banner("STEP 1: Validating Raw & Processed Datasets and Week 2 Modules")
     test_script = PROJECT_ROOT / "tests" / "test_data_loader.py"
     success = run_command([python_exe, str(test_script)], "Data Loader & Dataset Verification")
     if not success:
         print("\n❌ Pipeline stopped: Dataset validation failed.")
+        sys.exit(1)
+
+    test_week2_script = PROJECT_ROOT / "tests" / "test_week2.py"
+    success = run_command([python_exe, str(test_week2_script)], "Week 2 Forecaster & Battery LP Verification")
+    if not success:
+        print("\n❌ Pipeline stopped: Week 2 unit tests failed.")
         sys.exit(1)
 
     if args.test_only:
@@ -87,8 +93,16 @@ def main():
         print("\n❌ Pipeline stopped: Baseline model training failed.")
         sys.exit(1)
 
-    # Step 3: Compute Correlations and Generate Analytical Plots
-    print_banner("STEP 3: Generating Correlation Matrices & Plots (reports/figures/)")
+    # Step 3: Run Week 2 Advanced Forecasting & PuLP Battery Optimization
+    print_banner("STEP 3: Training Week 2 Models (LightGBM, Prophet) & PuLP Battery Optimization")
+    week2_script = PROJECT_ROOT / "src" / "models" / "train_forecasting.py"
+    success = run_command([python_exe, str(week2_script)], "Week 2 Forecasting & Battery Arbitrage")
+    if not success:
+        print("\n❌ Pipeline stopped: Week 2 training failed.")
+        sys.exit(1)
+
+    # Step 4: Compute Correlations and Generate Analytical Plots
+    print_banner("STEP 4: Generating Correlation Matrices & Plots (reports/figures/)")
     reports_script = PROJECT_ROOT / "src" / "visualization" / "reports_generator.py"
     success = run_command([python_exe, str(reports_script)], "Analytical Reports & Figures Generation")
     if not success:
@@ -97,6 +111,8 @@ def main():
     print_banner("Pipeline Execution Succeeded!")
     print("✔ Datasets verified.")
     print("✔ Out-of-sample 7-day baseline benchmarks trained and evaluated.")
+    print("✔ Advanced LightGBM & Prophet models benchmarked.")
+    print("✔ PuLP 24-hour battery arbitrage LP solved.")
     print("✔ Correlation matrices saved to 'reports/'.")
     print("✔ Publication-quality analytical figures saved to 'reports/figures/'.")
 

@@ -221,10 +221,52 @@ df_hourly = load_processed_handoff(plant_id=1, freq="hourly")
 
 ---
 
+## Week 2 Advanced Forecasting & PuLP Battery Optimization Leaderboard
+
+Evaluated out-of-sample across the 7-day test horizon (14,740 test samples for Plant 1; 14,784 for Plant 2):
+
+### Solar Power Plant 1 Leaderboard
+| Rank | Model | Architecture | Daylight RMSE (kW / inv) | Daylight MAPE (%) | Daylight $R^2$ | Overall $R^2$ | Daylight nRMSE (%) |
+|:---:|---|---|:---:|:---:|:---:|:---:|:---:|
+| 🥇 | **Ridge Regression Baseline** | Regularized L2 Linear | **125.21** | **22.93%** | **0.8678** | **0.9356** | **8.87%** |
+| 🥈 | **LightGBM Forecaster** | Gradient Boosted Trees | 152.31 | 25.77% | 0.8044 | 0.9048 | 10.79% |
+| 🥉 | **Prophet Forecaster** | Additive Seasonality + Regressors | 183.42 | 47.54% | 0.7163 | 0.8619 | 13.00% |
+| 4 | **Persistence Benchmark** | 24h Lagged Ground Truth | 242.15 | 41.18% | 0.5056 | 0.7593 | 17.16% |
+
+### Solar Power Plant 2 Leaderboard
+| Rank | Model | Architecture | Daylight RMSE (kW / inv) | Daylight MAPE (%) | Daylight $R^2$ | Overall $R^2$ | Daylight nRMSE (%) |
+|:---:|---|---|:---:|:---:|:---:|:---:|:---:|
+| 🥇 | **Ridge Regression Baseline** | Regularized L2 Linear | **159.09** | **34.76%** | **0.6964** | **0.8261** | **11.98%** |
+| 🥈 | **LightGBM Forecaster** | Gradient Boosted Trees | 163.44 | 34.11% | 0.6795 | 0.8165 | 12.30% |
+| 🥉 | **Prophet Forecaster** | Additive Seasonality + Regressors | 225.24 | 55.39% | 0.3913 | 0.6515 | 16.96% |
+| 4 | **Persistence Benchmark** | 24h Lagged Ground Truth | 302.94 | 62.42% | -0.1011 | 0.3696 | 22.81% |
+
+---
+
+## PuLP Battery Energy Storage System (BESS) Linear Programming
+
+Implemented in [`src/optimization/battery_lp.py`](src/optimization/battery_lp.py):
+
+- **Objective:** Minimize daily electricity import costs minus export feed-in revenues subject to battery throughput wear:
+  $$\min \sum_{t=1}^{T} \left( C_{\text{import}, t} \cdot P_{\text{import}, t} \cdot \Delta t - C_{\text{export}, t} \cdot P_{\text{export}, t} \cdot \Delta t + C_{\text{deg}} \cdot (P_{\text{ch}, t} + P_{\text{dis}, t}) \cdot \Delta t \right)$$
+- **Physical Constraints:**
+  1. **Power Balance:** $P_{\text{solar}, t} + P_{\text{dis}, t} + P_{\text{import}, t} = P_{\text{load}, t} + P_{\text{ch}, t} + P_{\text{export}, t}$
+  2. **SoC Dynamics:** $E_t = E_{t-1} + \left( \eta_{\text{ch}} P_{\text{ch}, t} - \frac{1}{\eta_{\text{dis}}} P_{\text{dis}, t} \right) \Delta t$
+  3. **Capacity & Operational Bounds:** $\text{SoC}_{\min} \cdot E_{\text{cap}} \le E_t \le \text{SoC}_{\max} \cdot E_{\text{cap}}$ and $0 \le P_{\text{ch}, t} \le P_{\text{ch}}^{\max}$, $0 \le P_{\text{dis}, t} \le P_{\text{dis}}^{\max}$
+  4. **Terminal SoC:** $E_T \ge E_0$ (ensures zero depletion free-riding across days)
+
+**24-Hour Benchmark Result (Plant 1 - 10 MWh / 5 MW BESS):**
+- **Unmanaged Electricity Cost:** $6,346.40
+- **Optimized Electricity Cost (With BESS):** $4,650.94
+- **Net TOU Arbitrage Savings:** **$1,695.47 (26.7% cost reduction)**
+- **Solar Self-Consumption:** Increased from **42.1%** to **48.5%**
+
+---
+
 ## 4-Week Milestone Roadmap
 
 - [x] **Week 1:** Data cleaning, inverter coverage validation, weather EDA, time-based split, feature engineering, physical zero-inflation, baseline regression benchmarking, correlation matrices, and analytical figure generation.
-- [ ] **Week 2:** Duck Curve net grid load explorer, Time-of-Use (TOU) tariff matrix, 24-hour multi-step forecasting with LightGBM, XGBoost, and Prophet, and PuLP Linear Programming battery arbitrage formulation.
+- [x] **Week 2:** Advanced 24-hour multi-step forecasting with LightGBM and Prophet, Time-of-Use (TOU) tariff matrix, PuLP Linear Programming battery arbitrage formulation, and Duck Curve net grid load explorer.
 - [ ] **Week 3:** Streamlit application integration with forecast bounds, battery State-of-Charge (SoC) gauges, automated charge/discharge schedules, and net tariff savings calculator.
 - [ ] **Week 4:** Monsoon and cloud cover stress-testing, carbon offset calculations (kg CO₂ avoided), and downloadable executive grid advisory reports.
 

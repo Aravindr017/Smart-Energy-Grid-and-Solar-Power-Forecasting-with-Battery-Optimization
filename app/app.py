@@ -1,12 +1,14 @@
 """
 Smart Energy Grid & Solar Power Forecasting with Battery Optimization
-Streamlit Web Application
+Streamlit Web Application (Week 1 & Week 2 Integrated System)
 """
 
 import sys
 from pathlib import Path
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 # Ensure project root is available in sys.path
@@ -15,9 +17,10 @@ if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
 from src.data.loader import load_processed_handoff
+from src.optimization.battery_lp import BatterySpecs, TOUTariff, BatteryOptimizerLP
 
 st.set_page_config(
-    page_title="Solar Generation Forecasting System",
+    page_title="Smart Solar Grid & Battery Optimization",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -66,20 +69,29 @@ st.markdown(
         border-radius: 4px;
         padding: 0 16px;
     }
+    .badge-hero {
+        background-color: #eff6ff;
+        border: 1px solid #bfdbfe;
+        color: #1e40af;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 # Header Section
-st.markdown('<div class="main-header">Solar Generation Forecasting & Grid Optimization</div>', unsafe_allow_html=True)
+st.markdown('<div class="main-header">⚡ Smart Solar Grid & Battery Optimization</div>', unsafe_allow_html=True)
 st.markdown(
-    '<div class="sub-header">Plant Generation Analytics, Weather Irradiance Correlation, and Day-Ahead Forecasting Benchmarks</div>',
+    '<div class="sub-header">24-Hour AI/ML Generation Forecasting (LightGBM & Prophet) with PuLP Linear Programming Battery Arbitrage</div>',
     unsafe_allow_html=True,
 )
 
 # Sidebar Configuration
-st.sidebar.markdown("### Parameters")
+st.sidebar.markdown("### Plant Parameters")
 plant_id = st.sidebar.selectbox(
     "Solar Plant",
     options=[1, 2],
@@ -103,7 +115,7 @@ if plant_id == 1:
         """
         - **Location:** 14.80° N, 78.18° E
         - **Elevation:** 203 m
-        - **Inverters:** 22 Units
+        - **Inverters:** 22 Units (Total ~29 MW Peak)
         - **Data Span:** 34 Days (May–June 2020)
         """
     )
@@ -112,7 +124,7 @@ else:
         """
         - **Location:** 14.38° N, 77.50° E
         - **Elevation:** 491 m
-        - **Inverters:** 22 Units
+        - **Inverters:** 22 Units (Total ~26 MW Peak)
         - **Data Span:** 34 Days (May–June 2020)
         """
     )
@@ -143,7 +155,6 @@ if df_raw_loaded is not None:
     if selected_inverter != "All Inverters (Plant Aggregate)":
         df = df_raw_loaded[df_raw_loaded["source_key"] == selected_inverter].copy()
     elif "source_key" in df_raw_loaded.columns:
-        # Aggregate to plant-level sum for generation and mean for weather
         numeric_weather_cols = [c for c in [
             "sensor_irradiation", "sensor_temperature", "module_temperature",
             "openmeteo_temperature", "humidity", "ghi", "direct_radiation", "dhi", "dni", "wind_speed_10m"
@@ -164,13 +175,8 @@ if df_raw_loaded is not None:
     peak_ac = df["ac_power"].max() if "ac_power" in df.columns else 0.0
     avg_ac = df["ac_power"].mean() if "ac_power" in df.columns else 0.0
 
-    # Total estimated energy in MWh
-    if "ac_energy_kwh_est" in df.columns:
-        total_energy_mwh = df["ac_energy_kwh_est"].sum() / 1000.0
-    else:
-        # Calculate from interval duration
-        time_diff_hours = 0.25 if "15min" in granularity else 1.0
-        total_energy_mwh = (df["ac_power"].sum() * time_diff_hours) / 1000.0
+    time_diff_hours = 0.25 if "15min" in granularity else 1.0
+    total_energy_mwh = (df["ac_power"].sum() * time_diff_hours) / 1000.0
 
     col1, col2, col3, col4 = st.columns(4)
     with col1:
@@ -185,13 +191,16 @@ if df_raw_loaded is not None:
     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
     # Navigation Tabs
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "Generation & Irradiance Analysis",
-        "Forecast Model Benchmarks",
-        "Dataset Inspection"
+        "AI/ML Forecast Benchmarks (Week 1 & 2)",
+        "🔋 Battery Arbitrage & LP Optimization (Week 2)",
+        "Dataset Inspection & Export"
     ])
 
+    # -------------------------------------------------------------------------
     # TAB 1: Generation & Irradiance
+    # -------------------------------------------------------------------------
     with tab1:
         st.markdown("#### Generation Timeline vs. Solar Irradiance")
         fig = go.Figure()
@@ -243,89 +252,55 @@ if df_raw_loaded is not None:
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
             margin=dict(l=40, r=40, t=30, b=40),
             template="plotly_white",
-            height=480
+            height=460
         )
         st.plotly_chart(fig, use_container_width=True)
 
         # Diurnal Average Generation Profile
-        st.markdown("#### Mean Diurnal Profile (24-Hour Cycle)")
-        df_diurnal = df.copy()
-        df_diurnal["hour"] = pd.to_datetime(df_diurnal["time"]).dt.hour
-        hourly_summary = df_diurnal.groupby("hour").agg(
-            mean_ac=("ac_power", "mean"),
-            max_ac=("ac_power", "max"),
-            min_ac=("ac_power", "min")
-        ).reset_index()
+        st.markdown("#### Mean Diurnal Profile (Hour of Day)")
+        df["hour"] = pd.to_datetime(df["time"]).dt.hour
+        hourly_summary = df.groupby("hour")["ac_power"].agg(["mean", "std", "max"]).reset_index()
 
         fig_diurnal = go.Figure()
         fig_diurnal.add_trace(go.Scatter(
             x=hourly_summary["hour"],
-            y=hourly_summary["max_ac"],
-            mode="lines",
-            name="Maximum Output",
-            line=dict(color="#cbd5e1", width=1),
-            showlegend=False
-        ))
-        fig_diurnal.add_trace(go.Scatter(
-            x=hourly_summary["hour"],
-            y=hourly_summary["min_ac"],
-            mode="lines",
-            name="Minimum Output",
-            fill="tonexty",
-            fillcolor="rgba(226, 232, 240, 0.5)",
-            line=dict(color="#cbd5e1", width=1),
-            showlegend=False
-        ))
-        fig_diurnal.add_trace(go.Scatter(
-            x=hourly_summary["hour"],
-            y=hourly_summary["mean_ac"],
+            y=hourly_summary["mean"],
             mode="lines+markers",
-            name="Mean Generation (kW)",
-            line=dict(color="#0f172a", width=2.5),
-            marker=dict(size=5)
+            name="Mean AC Power (kW)",
+            line=dict(color="#2563eb", width=2.5),
+            marker=dict(size=6)
+        ))
+        fig_diurnal.add_trace(go.Scatter(
+            x=hourly_summary["hour"],
+            y=hourly_summary["max"],
+            mode="lines",
+            name="Peak Observed Output (kW)",
+            line=dict(color="#94a3b8", width=1.5, dash="dash")
         ))
         fig_diurnal.update_layout(
-            xaxis=dict(title="Hour of Day (0–23)", dtick=1, gridcolor="#f1f5f9"),
+            xaxis=dict(title="Hour of Day (IST)", tickmode="linear", tick0=0, dtick=2),
             yaxis=dict(title="AC Power (kW)", gridcolor="#f1f5f9"),
-            margin=dict(l=40, r=40, t=20, b=40),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(l=40, r=40, t=30, b=40),
             template="plotly_white",
-            height=320
+            height=340
         )
         st.plotly_chart(fig_diurnal, use_container_width=True)
 
-        # Weather & Sensor Correlation Analysis
-        st.markdown("#### Target & Feature Correlation Matrix")
-        corr_file = root_dir / "reports" / f"plant{plant_id}_correlations.csv"
-        if corr_file.exists():
-            corr_df = pd.read_csv(corr_file, index_col=0)
-            fig_corr = go.Figure(data=go.Heatmap(
-                z=corr_df.values,
-                x=corr_df.columns,
-                y=corr_df.index,
-                colorscale="RdBu",
-                reversescale=True,
-                zmin=-1.0,
-                zmax=1.0,
-                colorbar=dict(title="Pearson r")
-            ))
-            fig_corr.update_layout(
-                xaxis=dict(tickangle=-45),
-                margin=dict(l=40, r=40, t=20, b=40),
-                template="plotly_white",
-                height=450
-            )
-            st.plotly_chart(fig_corr, use_container_width=True)
-
-    # TAB 2: Forecast Benchmarks
+    # -------------------------------------------------------------------------
+    # TAB 2: Forecast Benchmarks (Week 1 Baselines & Week 2 Models)
+    # -------------------------------------------------------------------------
     with tab2:
-        st.markdown("#### Out-of-Sample Evaluation: Actual Generation vs. Baseline Models")
+        st.markdown("#### Out-of-Sample 7-Day Forecasting Leaderboard")
         st.caption(
-            "Evaluation performed over the final 7 consecutive days (672 time steps per inverter). "
-            "Nighttime zero-inflation is strictly enforced during non-generating hours."
+            "Evaluated out-of-sample across the final 7 consecutive days (~14,700 test observations per plant). "
+            "Nighttime zero-inflation is physically enforced when solar elevation ≤ 0° or GHI ≤ 1.0 W/m²."
         )
 
-        metrics_file = root_dir / "reports" / "week1_baseline_metrics_summary.csv"
-        pred_file = root_dir / "reports" / f"plant{plant_id}_week1_baseline_predictions.csv"
+        metrics_week2_file = root_dir / "reports" / "week2_forecasting_metrics_summary.csv"
+        metrics_week1_file = root_dir / "reports" / "week1_baseline_metrics_summary.csv"
+        
+        metrics_file = metrics_week2_file if metrics_week2_file.exists() else metrics_week1_file
 
         if metrics_file.exists():
             summary_df = pd.read_csv(metrics_file)
@@ -355,11 +330,15 @@ if df_raw_loaded is not None:
                 hide_index=True
             )
 
+        # Plot Predictions
+        pred_w2_file = root_dir / "reports" / f"plant{plant_id}_week2_forecasting_predictions.csv"
+        pred_w1_file = root_dir / "reports" / f"plant{plant_id}_week1_baseline_predictions.csv"
+        pred_file = pred_w2_file if pred_w2_file.exists() else pred_w1_file
+
         if pred_file.exists():
             df_preds_raw = pd.read_csv(pred_file)
             df_preds_raw["time"] = pd.to_datetime(df_preds_raw["time"])
 
-            # Filter or aggregate predictions matching the sidebar inverter selection
             if "source_key" in df_preds_raw.columns and selected_inverter != "All Inverters (Plant Aggregate)":
                 df_preds = df_preds_raw[df_preds_raw["source_key"] == selected_inverter].sort_values("time")
                 chart_sub = f"Showing individual inverter output for {selected_inverter}."
@@ -371,51 +350,69 @@ if df_raw_loaded is not None:
                 df_preds = df_preds_raw.sort_values("time")
                 chart_sub = "Showing plant-level output."
 
-            st.caption(chart_sub)
+            st.markdown(f"##### Test Horizon Predictions vs. Ground Truth ({chart_sub})")
 
             fig_pred = go.Figure()
+            # Actual Ground Truth
             fig_pred.add_trace(go.Scatter(
                 x=df_preds["time"],
                 y=df_preds["actual_ac_power"],
                 mode="lines",
-                name="Actual Power Output",
+                name="Actual Power",
                 line=dict(color="#0f172a", width=2.5),
                 hovertemplate="%{x}<br>Actual: %{y:,.1f} kW<extra></extra>"
             ))
-            if "pred_ridge_regression" in df_preds.columns:
+
+            # LightGBM (Week 2 Hero)
+            if "pred_lightgbm" in df_preds.columns:
+                fig_pred.add_trace(go.Scatter(
+                    x=df_preds["time"],
+                    y=df_preds["pred_lightgbm"],
+                    mode="lines",
+                    name="LightGBM (GBDT)",
+                    line=dict(color="#10b981", width=2.0),
+                    hovertemplate="%{x}<br>LightGBM: %{y:,.1f} kW<extra></extra>"
+                ))
+
+            # Ridge Regression (Week 1 Baseline)
+            if "pred_ridge" in df_preds.columns:
+                fig_pred.add_trace(go.Scatter(
+                    x=df_preds["time"],
+                    y=df_preds["pred_ridge"],
+                    mode="lines",
+                    name="Ridge Regression",
+                    line=dict(color="#2563eb", width=1.75, dash="dash"),
+                    hovertemplate="%{x}<br>Ridge: %{y:,.1f} kW<extra></extra>"
+                ))
+            elif "pred_ridge_regression" in df_preds.columns:
                 fig_pred.add_trace(go.Scatter(
                     x=df_preds["time"],
                     y=df_preds["pred_ridge_regression"],
                     mode="lines",
-                    name="Ridge Regression Baseline",
+                    name="Ridge Regression",
                     line=dict(color="#2563eb", width=1.75, dash="dash"),
                     hovertemplate="%{x}<br>Ridge: %{y:,.1f} kW<extra></extra>"
                 ))
-            if "pred_linear_regression" in df_preds.columns:
+
+            # Prophet (Week 2 Additive TS)
+            if "pred_prophet" in df_preds.columns:
                 fig_pred.add_trace(go.Scatter(
                     x=df_preds["time"],
-                    y=df_preds["pred_linear_regression"],
+                    y=df_preds["pred_prophet"],
                     mode="lines",
-                    name="Linear Regression Baseline",
-                    line=dict(color="#10b981", width=1.5, dash="dot"),
-                    hovertemplate="%{x}<br>Linear: %{y:,.1f} kW<extra></extra>"
+                    name="Facebook Prophet",
+                    line=dict(color="#8b5cf6", width=1.5, dash="dot"),
+                    hovertemplate="%{x}<br>Prophet: %{y:,.1f} kW<extra></extra>"
                 ))
-            if "pred_persistence_24h_lag" in df_preds.columns:
+
+            # Persistence Benchmark (24h Lag)
+            if "pred_persistence" in df_preds.columns:
                 fig_pred.add_trace(go.Scatter(
                     x=df_preds["time"],
-                    y=df_preds["pred_persistence_24h_lag"],
+                    y=df_preds["pred_persistence"],
                     mode="lines",
                     name="Persistence (24h Lag)",
-                    line=dict(color="#94a3b8", width=1.25, dash="dot"),
-                    hovertemplate="%{x}<br>Persistence: %{y:,.1f} kW<extra></extra>"
-                ))
-            elif "pred_persistence_(24h_lag)" in df_preds.columns:
-                fig_pred.add_trace(go.Scatter(
-                    x=df_preds["time"],
-                    y=df_preds["pred_persistence_(24h_lag)"],
-                    mode="lines",
-                    name="Persistence (24h Lag)",
-                    line=dict(color="#94a3b8", width=1.25, dash="dot"),
+                    line=dict(color="#94a3b8", width=1.2, dash="dot"),
                     hovertemplate="%{x}<br>Persistence: %{y:,.1f} kW<extra></extra>"
                 ))
 
@@ -438,11 +435,217 @@ if df_raw_loaded is not None:
                 height=480
             )
             st.plotly_chart(fig_pred, use_container_width=True)
-        else:
-            st.warning("Prediction report not found. Execute 'python run_all.py' to generate baseline predictions.")
 
-    # TAB 3: Dataset Records
+            # Feature Importance section
+            feat_file = root_dir / "reports" / f"plant{plant_id}_lightgbm_feature_importance.csv"
+            if feat_file.exists():
+                st.markdown("##### 🌳 LightGBM Feature Importance (Split Gain)")
+                df_imp = pd.read_csv(feat_file)
+                fig_imp = go.Figure(go.Bar(
+                    x=df_imp["importance"][:12],
+                    y=df_imp["feature"][:12],
+                    orientation="h",
+                    marker=dict(color="#3b82f6"),
+                ))
+                fig_imp.update_layout(
+                    yaxis=dict(autorange="reversed"),
+                    xaxis=dict(title="Importance (Split Count)"),
+                    margin=dict(l=40, r=40, t=20, b=40),
+                    height=360,
+                    template="plotly_white"
+                )
+                st.plotly_chart(fig_imp, use_container_width=True)
+
+    # -------------------------------------------------------------------------
+    # TAB 3: PuLP Battery Arbitrage & Optimization (Week 2 Hero Tab)
+    # -------------------------------------------------------------------------
     with tab3:
+        st.markdown("#### 🔋 Battery Energy Storage System (BESS) Arbitrage Optimizer")
+        st.caption(
+            "Solves a 24-Hour Linear Programming (LP) optimization problem using PuLP. "
+            "Charges battery during low-tariff solar overgeneration hours and discharges during evening peak hours."
+        )
+
+        # Battery Configuration Controls
+        bcol1, bcol2, bcol3, bcol4 = st.columns(4)
+        with bcol1:
+            batt_cap_mwh = st.slider("Battery Storage Capacity (MWh)", min_value=1.0, max_value=30.0, value=10.0, step=1.0)
+            batt_cap_kwh = batt_cap_mwh * 1000.0
+        with bcol2:
+            max_p_mw = st.slider("Max Inverter Power (MW)", min_value=0.5, max_value=15.0, value=5.0, step=0.5)
+            max_p_kw = max_p_mw * 1000.0
+        with bcol3:
+            round_trip_eff = st.slider("Round-Trip Efficiency (%)", min_value=75.0, max_value=98.0, value=90.25, step=0.5)
+            one_way_eff = float(np.sqrt(round_trip_eff / 100.0))
+        with bcol4:
+            initial_soc_pct = st.slider("Initial SoC (%)", min_value=10.0, max_value=80.0, value=20.0, step=5.0)
+
+        # TOU Tariff Settings
+        st.markdown("##### Time-of-Use (TOU) Tariff Schedule")
+        tcol1, tcol2, tcol3, tcol4 = st.columns(4)
+        with tcol1:
+            off_peak_price = st.number_input("Off-Peak Rate ($/kWh)", min_value=0.01, max_value=0.50, value=0.05, step=0.01)
+        with tcol2:
+            normal_price = st.number_input("Normal / Shoulder Rate ($/kWh)", min_value=0.01, max_value=0.50, value=0.10, step=0.01)
+        with tcol3:
+            peak_price = st.number_input("Evening Peak Rate (17:00-21:00) ($/kWh)", min_value=0.05, max_value=1.00, value=0.25, step=0.02)
+        with tcol4:
+            export_rate = st.number_input("Grid Solar Export Feed-In ($/kWh)", min_value=0.00, max_value=0.30, value=0.04, step=0.01)
+
+        # Load 24h slice from hourly data for optimization
+        df_hourly_all = get_data(plant_id, "hourly")
+        if df_hourly_all is not None:
+            day_slice = df_hourly_all.tail(24).copy().reset_index(drop=True)
+            
+            # Setup optimizer
+            b_specs = BatterySpecs(
+                capacity_kwh=batt_cap_kwh,
+                max_charge_kw=max_p_kw,
+                max_discharge_kw=max_p_kw,
+                charge_efficiency=one_way_eff,
+                discharge_efficiency=one_way_eff,
+                soc_min=0.10,
+                soc_max=0.90,
+                soc_initial=initial_soc_pct / 100.0,
+                degradation_cost_per_kwh=0.005,
+            )
+            b_tariff = TOUTariff(
+                off_peak_rate=off_peak_price,
+                normal_rate=normal_price,
+                peak_rate=peak_price,
+                export_feedin_rate=export_rate,
+            )
+
+            b_optimizer = BatteryOptimizerLP(specs=b_specs, tariff=b_tariff)
+            opt_res = b_optimizer.optimize_dispatch(
+                solar_kw=day_slice["ac_power"].values,
+                timestamps=day_slice["time"],
+                dt_hours=1.0,
+                enforce_terminal_soc=True,
+            )
+            kpis = opt_res["kpi_summary"]
+            sched_df = opt_res["schedule_df"]
+
+            # Display Optimization KPIs
+            st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+            kcol1, kcol2, kcol3, kcol4 = st.columns(4)
+            with kcol1:
+                st.metric("Net Arbitrage Savings", f"${kpis['net_arbitrage_savings']:,.2f}", delta=f"{kpis['savings_percentage']:.1f}% reduction")
+            with kcol2:
+                st.metric("Cost Without BESS", f"${kpis['cost_without_bess']:,.2f}")
+            with kcol3:
+                st.metric("Cost With BESS", f"${kpis['cost_with_bess']:,.2f}")
+            with kcol4:
+                st.metric("Solar Self-Consumption", f"{kpis['solar_self_consumption_with_bess_pct']:.1f}%", delta=f"+{kpis['solar_self_consumption_with_bess_pct'] - kpis['solar_self_consumption_without_bess_pct']:.1f}%")
+
+            # Plotly Chart: The Duck Curve Mitigation
+            st.markdown("##### 🦆 Duck Curve & Grid Load Shifting (Unmanaged vs. BESS Managed)")
+            fig_duck = go.Figure()
+            
+            # Solar generation
+            fig_duck.add_trace(go.Scatter(
+                x=sched_df["step"],
+                y=sched_df["solar_generation_kw"] / 1000.0,
+                mode="lines",
+                name="Solar Output (MW)",
+                line=dict(color="#f59e0b", width=2.5),
+                fill="tozeroy",
+                fillcolor="rgba(245, 158, 11, 0.15)"
+            ))
+
+            # Baseline load
+            fig_duck.add_trace(go.Scatter(
+                x=sched_df["step"],
+                y=sched_df["load_demand_kw"] / 1000.0,
+                mode="lines",
+                name="Baseline Demand (MW)",
+                line=dict(color="#64748b", width=2, dash="dash")
+            ))
+
+            # Unmanaged Grid Import
+            fig_duck.add_trace(go.Scatter(
+                x=sched_df["step"],
+                y=sched_df["grid_import_unmanaged_kw"] / 1000.0,
+                mode="lines",
+                name="Unmanaged Grid Import (Duck Curve Peak)",
+                line=dict(color="#ef4444", width=2.0)
+            ))
+
+            # Optimized Grid Import with BESS
+            fig_duck.add_trace(go.Scatter(
+                x=sched_df["step"],
+                y=sched_df["grid_import_with_bess_kw"] / 1000.0,
+                mode="lines",
+                name="Optimized Grid Import (With BESS)",
+                line=dict(color="#10b981", width=2.5)
+            ))
+
+            fig_duck.update_layout(
+                xaxis=dict(title="Hour of Day (0 to 23)", tickmode="linear", tick0=0, dtick=2),
+                yaxis=dict(title="Power (MW)", gridcolor="#f1f5f9"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=40, r=40, t=30, b=40),
+                template="plotly_white",
+                height=380
+            )
+            st.plotly_chart(fig_duck, use_container_width=True)
+
+            # Plotly Chart: Battery Charge, Discharge, and SoC Evolution
+            st.markdown("##### ⚡ Battery Power Dispatch & State of Charge (SoC %)")
+            fig_batt = make_subplots(specs=[[{"secondary_y": True}]])
+
+            # Charging Power (Negative or positive bar)
+            fig_batt.add_trace(go.Bar(
+                x=sched_df["step"],
+                y=sched_df["battery_charge_kw"] / 1000.0,
+                name="Charging Power (MW)",
+                marker_color="#3b82f6"
+            ), secondary_y=False)
+
+            # Discharging Power
+            fig_batt.add_trace(go.Bar(
+                x=sched_df["step"],
+                y=-sched_df["battery_discharge_kw"] / 1000.0,
+                name="Discharging Power (MW)",
+                marker_color="#f97316"
+            ), secondary_y=False)
+
+            # Battery State of Charge (%)
+            fig_batt.add_trace(go.Scatter(
+                x=sched_df["step"],
+                y=sched_df["battery_soc_pct"],
+                mode="lines+markers",
+                name="Battery SoC (%)",
+                line=dict(color="#8b5cf6", width=2.5),
+                marker=dict(size=6)
+            ), secondary_y=True)
+
+            fig_batt.update_yaxes(title_text="Battery Power [Charge(+) / Discharge(-)] (MW)", secondary_y=False, gridcolor="#f1f5f9")
+            fig_batt.update_yaxes(title_text="State of Charge (SoC %)", secondary_y=True, range=[0, 100])
+            fig_batt.update_xaxes(title_text="Hour of Day", tickmode="linear", tick0=0, dtick=2)
+            fig_batt.update_layout(
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                margin=dict(l=40, r=40, t=30, b=40),
+                template="plotly_white",
+                height=380
+            )
+            st.plotly_chart(fig_batt, use_container_width=True)
+
+            # Dispatch Schedule Table
+            with st.expander("🔍 View Detailed 24-Hour Hour-by-Hour Dispatch Schedule"):
+                st.dataframe(sched_df, use_container_width=True, hide_index=True)
+                csv_sched = sched_df.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    label="Download 24-Hour Dispatch Schedule CSV",
+                    data=csv_sched,
+                    file_name="battery_optimal_dispatch_24h.csv",
+                    mime="text/csv"
+                )
+
+    # -------------------------------------------------------------------------
+    # TAB 4: Dataset Records & Export
+    # -------------------------------------------------------------------------
+    with tab4:
         st.markdown("#### Processed Dataset Records")
         st.caption(f"Showing records for Plant {plant_id} ({granularity} resolution).")
 
