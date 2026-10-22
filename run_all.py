@@ -57,8 +57,9 @@ def run_command(cmd_list: list[str], description: str) -> bool:
 
 def main():
     parser = argparse.ArgumentParser(description="Run the end-to-end solar grid & forecasting pipeline.")
-    parser.add_argument("--app", action="store_true", help="Launch Streamlit dashboard after pipeline execution")
-    parser.add_argument("--test-only", action="store_true", help="Run only dataset integrity tests")
+    parser.add_argument("--web", action="store_true", help="Launch modern React + Tailwind web application & FastAPI server (Week 3)")
+    parser.add_argument("--app", action="store_true", help="Launch Streamlit dashboard")
+    parser.add_argument("--test-only", action="store_true", help="Run only dataset & module integrity tests")
     args = parser.parse_args()
 
     python_exe = get_python_executable()
@@ -79,6 +80,12 @@ def main():
     success = run_command([python_exe, str(test_week2_script)], "Week 2 Forecaster & Battery LP Verification")
     if not success:
         print("\n❌ Pipeline stopped: Week 2 unit tests failed.")
+        sys.exit(1)
+
+    test_week3_script = PROJECT_ROOT / "tests" / "test_week3.py"
+    success = run_command([python_exe, str(test_week3_script)], "Week 3 API & UI Integration Verification")
+    if not success:
+        print("\n❌ Pipeline stopped: Week 3 unit tests failed.")
         sys.exit(1)
 
     if args.test_only:
@@ -116,19 +123,27 @@ def main():
     print("✔ Correlation matrices saved to 'reports/'.")
     print("✔ Publication-quality analytical figures saved to 'reports/figures/'.")
 
-    # Step 3: Launch Streamlit App if requested
-    if args.app:
-        print_banner("STEP 3: Launching Streamlit Web Dashboard")
+    # Step 5: Launch Web Application if requested
+    if args.web:
+        print_banner("STEP 5: Launching Modern React & FastAPI Solar Dashboard (Week 3)")
+        print("🌐 Application available at: http://127.0.0.1:8000")
+        try:
+            subprocess.run([python_exe, "-m", "uvicorn", "src.api.server:app", "--host", "127.0.0.1", "--port", "8000"])
+        except KeyboardInterrupt:
+            print("\nWeb server stopped by user.")
+    elif args.app:
+        print_banner("STEP 5: Launching Streamlit Web Dashboard")
         app_script = PROJECT_ROOT / "app" / "app.py"
         try:
             subprocess.run([python_exe, "-m", "streamlit", "run", str(app_script)])
         except KeyboardInterrupt:
             print("\nStreamlit application stopped by user.")
     else:
-        print("\n💡 TIP: To launch the interactive web dashboard, run:")
-        print("    python run_all.py --app")
-        print("  or directly:")
-        print("    streamlit run app/app.py")
+        print("\n💡 TIP: To launch the modern React + Tailwind solar dashboard (Week 3), run:")
+        print("    python run_all.py --web")
+        print("  or directly via uvicorn:")
+        print("    python -m uvicorn src.api.server:app --port 8000")
+        print("  (Streamlit legacy dashboard is also available via: python run_all.py --app)")
 
 
 if __name__ == "__main__":

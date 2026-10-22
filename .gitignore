@@ -17,11 +17,13 @@ parts/
 sdist/
 var/
 wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+# ==========================================
+# Frontend Node Dependencies
+# ==========================================
+node_modules/
+frontend/node_modules/
+.npm
+package-lock.json.bak
 
 # ==========================================
 # Virtual Environments

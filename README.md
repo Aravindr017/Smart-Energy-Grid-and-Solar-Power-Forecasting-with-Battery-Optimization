@@ -1,10 +1,15 @@
 # Smart Energy Grid & Solar Power Forecasting with Battery Optimization
 
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![React 19](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev/)
+[![Tailwind CSS](https://img.shields.io/badge/TailwindCSS-v3.4-38B2AC.svg)](https://tailwindcss.com/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg)](https://fastapi.tiangolo.com/)
+[![PuLP](https://img.shields.io/badge/PuLP-LP%20Optimization-orange.svg)](https://coin-or.github.io/pulp/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Streamlit](https://img.shields.io/badge/Streamlit-App-FF4B4B.svg)](https://streamlit.io/)
 
 An end-to-end industrial-grade **Smart Renewable Energy Forecasting & Battery Arbitrage System**. This system forecasts solar power generation at high-frequency 15-minute and hourly resolutions, models grid Duck Curve peak demand dynamics, and utilizes linear programming (PuLP) to schedule battery energy storage dispatch (charging during cheap daylight solar peaks and discharging during expensive evening peak-tariff hours).
+
+Features a **modern enterprise React + Tailwind CSS dashboard** with interactive solar forecasting bounds, radial State-of-Charge (SoC) gauges, Duck Curve load shifting charts, and an automated Time-of-Use (TOU) tariff savings calculator.
 
 ---
 
@@ -13,10 +18,10 @@ An end-to-end industrial-grade **Smart Renewable Energy Forecasting & Battery Ar
 Renewable photovoltaic energy exhibits high intraday intermittency due to weather dynamics and diurnal cycles. Power grid operators cannot integrate solar reliably without accurate day-ahead generation forecasts and automated battery storage arbitrage.
 
 This project delivers:
-1. **Solar Power Forecasting:** Multi-step day-ahead forecasting using machine learning integrated with pyranometer sensor readings and Open-Meteo numerical weather forecasts (GHI, DNI, DHI, cloud cover, and ambient temperature).
+1. **Solar Power Forecasting:** Multi-step day-ahead forecasting using LightGBM and Prophet integrated with pyranometer sensor readings and Open-Meteo numerical weather forecasts (GHI, DNI, DHI, cloud cover, and ambient temperature) with 90% statistical prediction uncertainty bounds.
 2. **Duck Curve Analytics:** Quantifying the widening midday net load drop and steep evening ramp demand to evaluate grid stress points.
-3. **Battery Storage Arbitrage Optimization:** Linear Programming (LP) optimization formulated via PuLP to maximize revenue subject to battery capacity, C-rate, and depth-of-discharge constraints.
-4. **Interactive Enterprise Dashboard:** Streamlit application providing generation analysis, out-of-sample forecast benchmarking, diurnal profiling, and dataset inspection.
+3. **Battery Storage Arbitrage Optimization:** Linear Programming (LP) optimization formulated via PuLP to maximize revenue subject to battery capacity, C-rate, degradation wear, and depth-of-discharge constraints.
+4. **Enterprise React Web Platform & REST API:** High-performance FastAPI backend serving a responsive React + Tailwind CSS web dashboard (with collapsible sidebar and light solar theme), along with the legacy Streamlit explorer.
 
 ---
 
@@ -59,6 +64,9 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
 │
 ├── src/                                       # Production modular codebase
 │   ├── __init__.py
+│   ├── api/                                   # FastAPI REST backend for web client
+│   │   ├── __init__.py
+│   │   └── server.py                          # REST endpoints & static frontend mount
 │   ├── data/                                  # Data access & loading
 │   │   ├── __init__.py
 │   │   └── loader.py                          # Robust path-agnostic data loader
@@ -79,7 +87,18 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
 │       ├── __init__.py
 │       └── reports_generator.py               # Automated correlation & figure generator
 │
-├── app/                                       # Streamlit web application
+├── frontend/                                  # Modern React + Tailwind CSS Web Application
+│   ├── index.html                             # Web dashboard HTML entrypoint
+│   ├── package.json                           # React 19, Tailwind CSS v3, Recharts, Lucide
+│   ├── vite.config.js                         # Vite build configuration with backend proxy
+│   ├── tailwind.config.js                     # Solar theme design system
+│   ├── public/                                # Public assets (photorealistic solar background)
+│   ├── src/                                   # React frontend source
+│   │   ├── App.jsx                            # Main application layout & state manager
+│   │   └── components/                        # Modular views (Sidebar, TopBar, Forecast, BESS, etc.)
+│   └── dist/                                  # Compiled static web distribution (zero-build deploy)
+│
+├── app/                                       # Streamlit web application (legacy companion)
 │   ├── __init__.py
 │   └── app.py                                 # Enterprise dashboard entrypoint (with BESS simulator)
 │
@@ -94,21 +113,12 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
 │   ├── plant1_correlations.csv                # Correlation matrix (Plant 1)
 │   ├── plant2_correlations.csv                # Correlation matrix (Plant 2)
 │   └── figures/                               # Exported publication plots (300 DPI)
-│       ├── plant1_correlation_heatmap.png
-│       ├── plant2_correlation_heatmap.png
-│       ├── plant1_weather_irradiance_scatter.png
-│       ├── plant2_weather_irradiance_scatter.png
-│       ├── plant1_diurnal_generation_profile.png
-│       ├── plant2_diurnal_generation_profile.png
-│       ├── plant1_actual_vs_predicted_7days.png
-│       ├── plant2_actual_vs_predicted_7days.png
-│       ├── plant1_residuals_distribution.png
-│       └── plant2_residuals_distribution.png
 │
 └── tests/                                     # Automated test suites
     ├── __init__.py
     ├── test_data_loader.py                    # Dataset validation and schema integrity tests
-    └── test_week2.py                          # Week 2 forecaster and PuLP LP unit tests
+    ├── test_week2.py                          # Week 2 forecaster and PuLP LP unit tests
+    └── test_week3.py                          # Week 3 REST API & React frontend tests
 ```
 
 ---
@@ -200,7 +210,20 @@ pip install -r requirements.txt
 
 ### 2. Single-Command Pipeline Execution (Cross-Platform)
 
-- **macOS / Linux:**
+- **Universal Python (Recommended):**
+  ```bash
+  python run_all.py --web    # Launch modern React + Tailwind web dashboard at http://127.0.0.1:8000
+  python run_all.py         # Standard pipeline run (data checks, model training, figures)
+  python run_all.py --app   # Launch legacy Streamlit dashboard
+  python run_all.py --test-only # Run dataset & model integrity test suite
+  ```
+
+- **Direct Server Launch:**
+  ```bash
+  python -m uvicorn src.api.server:app --port 8000
+  ```
+
+- **macOS / Linux Shell:**
   ```bash
   ./run_all.sh              # Runs data checks, model training & figure exports
   ./run_all.sh --app        # With Streamlit dashboard
@@ -210,12 +233,6 @@ pip install -r requirements.txt
   ```cmd
   run_all.bat               # In Command Prompt / PowerShell
   run_all.bat --app         # With Streamlit dashboard
-  ```
-
-- **Universal Python:**
-  ```bash
-  python run_all.py         # Standard pipeline run
-  python run_all.py --app   # Launch dashboard
   ```
 
 ### 3. Programmatic Data Access
@@ -277,7 +294,7 @@ Implemented in [`src/optimization/battery_lp.py`](src/optimization/battery_lp.py
 
 - [x] **Week 1:** Data cleaning, inverter coverage validation, weather EDA, time-based split, feature engineering, physical zero-inflation, baseline regression benchmarking, correlation matrices, and analytical figure generation.
 - [x] **Week 2:** Advanced 24-hour multi-step forecasting with LightGBM and Prophet, Time-of-Use (TOU) tariff matrix, PuLP Linear Programming battery arbitrage formulation, and Duck Curve net grid load explorer.
-- [ ] **Week 3:** Streamlit application integration with forecast bounds, battery State-of-Charge (SoC) gauges, automated charge/discharge schedules, and net tariff savings calculator.
+- [x] **Week 3:** Enterprise React + Tailwind CSS dashboard & Streamlit app with statistical forecast bounds, radial battery State-of-Charge (SoC) gauges, automated charge/discharge schedules, and net tariff savings calculator; MVP frozen.
 - [ ] **Week 4:** Monsoon and cloud cover stress-testing, carbon offset calculations (kg CO₂ avoided), and downloadable executive grid advisory reports.
 
 ---
