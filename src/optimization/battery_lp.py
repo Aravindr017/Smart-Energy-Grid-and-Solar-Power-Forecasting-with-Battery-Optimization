@@ -85,6 +85,25 @@ class TOUTariff:
         return import_rates, export_rates
 
 
+def create_synthetic_load_profile(
+    solar_kw: Union[np.ndarray, pd.Series],
+    timestamps: Optional[Union[np.ndarray, pd.Series]] = None,
+) -> np.ndarray:
+    """Create the modeled facility demand profile used when no measured load is available."""
+    solar = np.asarray(solar_kw, dtype=float)
+    if timestamps is not None:
+        time_index = pd.DatetimeIndex(timestamps)
+        if len(time_index) != len(solar):
+            raise ValueError("timestamps and solar_kw must have the same length.")
+        hours = time_index.hour + time_index.minute / 60.0
+    else:
+        hours = np.arange(len(solar)) % 24
+
+    mean_solar = max(100.0, np.mean(solar[solar > 0])) if np.any(solar > 0) else 1000.0
+    base_curve = 0.5 + 0.2 * np.sin((hours - 8) * np.pi / 12) + 0.4 * np.exp(-((hours - 19) ** 2) / 8.0)
+    return base_curve * mean_solar * 0.85
+
+
 class BatteryOptimizerLP:
     """
     Linear Programming (LP) Battery Arbitrage & Dispatch Optimizer.
@@ -159,12 +178,7 @@ class BatteryOptimizerLP:
         T = len(P_sol)
         
         if load_kw is None:
-            # Default realistic load curve scaled to plant size
-            mean_solar = max(100.0, np.mean(P_sol[P_sol > 0])) if np.any(P_sol > 0) else 1000.0
-            # Synthetic 24-hour diurnal profile with evening commercial/residential peak
-            hours = np.arange(T) % 24
-            base_curve = 0.5 + 0.2 * np.sin((hours - 8) * np.pi / 12) + 0.4 * np.exp(-((hours - 19) ** 2) / 8.0)
-            P_load = base_curve * mean_solar * 0.85
+            P_load = create_synthetic_load_profile(P_sol, timestamps)
         else:
             P_load = np.asarray(load_kw, dtype=float)
 
@@ -228,14 +242,52 @@ class BatteryOptimizerLP:
         status = prob.solve(solver)
         solver_status_str = pulp.LpStatus[status]
 
+        if status != pulp.constants.LpStatusOptimal:
+            # Handle non-optimal / infeasible solver states gracefully without fabricating schedules
+            return {
+                "schedule_df": pd.DataFrame(),
+                "kpi_summary": {
+                    "solver_status": solver_status_str,
+                    "error": f"Solver failed to find an optimal solution (status: {solver_status_str})",
+                    "cost_without_bess": 0.0,
+                    "cost_with_bess": 0.0,
+                    "degradation_wear_cost": 0.0,
+                    "gross_arbitrage_savings": 0.0,
+                    "net_arbitrage_savings": 0.0,
+                    "savings_percentage": 0.0,
+                    "peak_grid_import_without_bess_kw": 0.0,
+                    "peak_grid_import_with_bess_kw": 0.0,
+                    "peak_demand_shaved_kw": 0.0,
+                    "peak_shaving_percentage": 0.0,
+                    "solar_self_consumption_without_bess_pct": 0.0,
+                    "solar_self_consumption_with_bess_pct": 0.0,
+                    "battery_total_throughput_kwh": 0.0,
+                    "equivalent_full_cycles": 0.0,
+                },
+                "solver_status": solver_status_str,
+            }
+
         # -------------------------------------------------------------
         # Extract Results
         # -------------------------------------------------------------
-        ch_vals = np.array([pulp.value(P_ch[t]) for t in range(T)])
-        dis_vals = np.array([pulp.value(P_dis[t]) for t in range(T)])
-        imp_vals = np.array([pulp.value(P_imp[t]) for t in range(T)])
-        exp_vals = np.array([pulp.value(P_exp[t]) for t in range(T)])
-        e_vals = np.array([pulp.value(E[t]) for t in range(T)])
+        ch_vals = np.array([float(pulp.value(P_ch[t]) or 0.0) for t in range(T)])
+        dis_vals = np.array([float(pulp.value(P_dis[t]) or 0.0) for t in range(T)])
+        imp_vals = np.array([float(pulp.value(P_imp[t]) or 0.0) for t in range(T)])
+        exp_vals = np.array([float(pulp.value(P_exp[t]) or 0.0) for t in range(T)])
+        e_vals = np.array([float(pulp.value(E[t]) or 0.0) for t in range(T)])
+
+        # Strictly enforce mutual exclusivity of simultaneous charging and discharging
+        simultaneous_mask = (ch_vals > 1e-4) & (dis_vals > 1e-4)
+        if np.any(simultaneous_mask):
+            for t in np.where(simultaneous_mask)[0]:
+                net_p = ch_vals[t] - dis_vals[t]
+                if net_p >= 0:
+                    ch_vals[t] = net_p
+                    dis_vals[t] = 0.0
+                else:
+                    ch_vals[t] = 0.0
+                    dis_vals[t] = -net_p
+
         soc_pct = (e_vals / self.specs.capacity_kwh) * 100.0
 
         # Net load seen by the grid:
@@ -246,9 +298,11 @@ class BatteryOptimizerLP:
         unmanaged_cost = np.sum((c_import * unmanaged_imp - c_export * unmanaged_exp) * dt_hours)
 
         # With Battery:
-        optimized_cost = np.sum((c_import * imp_vals - c_export * exp_vals) * dt_hours)
+        optimized_grid_cost = np.sum((c_import * imp_vals - c_export * exp_vals) * dt_hours)
         deg_cost = np.sum(self.specs.degradation_cost_per_kwh * (ch_vals + dis_vals) * dt_hours)
-        net_arbitrage_savings = unmanaged_cost - optimized_cost
+        total_optimized_cost = optimized_grid_cost + deg_cost
+        gross_arbitrage_savings = unmanaged_cost - optimized_grid_cost
+        net_arbitrage_savings = unmanaged_cost - total_optimized_cost
         savings_pct = (net_arbitrage_savings / unmanaged_cost * 100.0) if unmanaged_cost > 0 else 0.0
 
         # Solar self-consumption calculation
@@ -289,8 +343,10 @@ class BatteryOptimizerLP:
         kpis = {
             "solver_status": solver_status_str,
             "cost_without_bess": round(float(unmanaged_cost), 2),
-            "cost_with_bess": round(float(optimized_cost), 2),
+            "cost_with_bess": round(float(total_optimized_cost), 2),
+            "optimized_grid_cost": round(float(optimized_grid_cost), 2),
             "degradation_wear_cost": round(float(deg_cost), 2),
+            "gross_arbitrage_savings": round(float(gross_arbitrage_savings), 2),
             "net_arbitrage_savings": round(float(net_arbitrage_savings), 2),
             "savings_percentage": round(float(savings_pct), 2),
             "peak_grid_import_without_bess_kw": round(peak_demand_unmanaged, 2),

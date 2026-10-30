@@ -64,9 +64,13 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
 │
 ├── src/                                       # Production modular codebase
 │   ├── __init__.py
+│   ├── analysis/                              # Week 4 analytical suites
+│   │   ├── __init__.py
+│   │   ├── weather_stress_test.py             # 6-scenario extreme-weather stress testing & resilience
+│   │   └── carbon_accounting.py               # Operational avoided emissions & CEA v19.0 provenance
 │   ├── api/                                   # FastAPI REST backend for web client
 │   │   ├── __init__.py
-│   │   └── server.py                          # REST endpoints & static frontend mount
+│   │   └── server.py                          # REST endpoints, static frontend mount & PDF delivery
 │   ├── data/                                  # Data access & loading
 │   │   ├── __init__.py
 │   │   └── loader.py                          # Robust path-agnostic data loader
@@ -85,7 +89,8 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
 │   │   └── battery_lp.py                      # PuLP Linear Programming battery arbitrage
 │   └── visualization/                         # Plotting & reporting utilities
 │       ├── __init__.py
-│       └── reports_generator.py               # Automated correlation & figure generator
+│       ├── reports_generator.py               # Automated correlation & figure generator
+│       └── executive_report.py                # Dynamic multi-page ReportLab PDF executive report
 │
 ├── frontend/                                  # Modern React + Tailwind CSS Web Application
 │   ├── index.html                             # Web dashboard HTML entrypoint
@@ -95,16 +100,23 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
 │   ├── public/                                # Public assets (photorealistic solar background)
 │   ├── src/                                   # React frontend source
 │   │   ├── App.jsx                            # Main application layout & state manager
-│   │   └── components/                        # Modular views (Sidebar, TopBar, Forecast, BESS, etc.)
+│   │   └── components/                        # Modular views (Forecast, BESS, Weather, Carbon, Report)
 │   └── dist/                                  # Compiled static web distribution (zero-build deploy)
 │
 ├── app/                                       # Streamlit web application (legacy companion)
 │   ├── __init__.py
-│   └── app.py                                 # Enterprise dashboard entrypoint (with BESS simulator)
+│   └── app.py                                 # Enterprise dashboard entrypoint (with Week 4 tabs)
 │
 ├── reports/                                   # Evaluation outputs & publication figures
 │   ├── week1_baseline_metrics_summary.csv     # Week 1 baseline evaluation leaderboard
 │   ├── week2_forecasting_metrics_summary.csv  # Week 2 forecasting leaderboard
+│   ├── week4_weather_stress_summary.csv       # Week 4 weather stress scenario matrix
+│   ├── week4_forecast_stress_metrics.csv      # Week 4 model error spikes under stress
+│   ├── week4_battery_resilience.csv           # Week 4 BESS dispatch under climate stress
+│   ├── week4_carbon_summary.csv               # Week 4 CEA grid sensitivity summary
+│   ├── week4_carbon_scenarios.csv             # Week 4 avoided emissions by weather scenario
+│   ├── executive_report_plant1.pdf            # 6-page Executive Technical Report (Plant 1)
+│   ├── executive_report_plant2.pdf            # 6-page Executive Technical Report (Plant 2)
 │   ├── plant1_week2_forecasting_predictions.csv # 14,740 test horizon predictions (Plant 1)
 │   ├── plant2_week2_forecasting_predictions.csv # 14,784 test horizon predictions (Plant 2)
 │   ├── plant1_lightgbm_feature_importance.csv # LightGBM feature gain rankings (Plant 1)
@@ -118,7 +130,8 @@ Smart-Energy-Grid-and-Solar-Power-Forecasting-with-Battery-Optimization/
     ├── __init__.py
     ├── test_data_loader.py                    # Dataset validation and schema integrity tests
     ├── test_week2.py                          # Week 2 forecaster and PuLP LP unit tests
-    └── test_week3.py                          # Week 3 REST API & React frontend tests
+    ├── test_week3.py                          # Week 3 REST API & React frontend tests
+    └── test_week4.py                          # Week 4 Stress testing, Carbon & PDF tests
 ```
 
 ---
@@ -199,43 +212,75 @@ Exported to [`reports/plant1_correlations.csv`](reports/plant1_correlations.csv)
 
 ---
 
-## Quickstart & Execution
+## Quickstart & Execution Guide (Windows & Cross-Platform)
 
-### 1. Environment Setup
-```bash
-python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+### 1. Python Environment Setup
+```powershell
+# In PowerShell (Windows):
+python -m venv venv
+.\venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
+*(On macOS / Linux: `python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt`)*
 
-### 2. Single-Command Pipeline Execution (Cross-Platform)
+### 2. Frontend Dependencies & Production Build
+```powershell
+# Navigate to the React frontend directory:
+cd frontend
+npm install
+npm run build     # Compiles production distribution to frontend/dist/
+npm run lint      # Runs Oxlint code quality verification (0 errors)
+cd ..
+```
 
-- **Universal Python (Recommended):**
-  ```bash
-  python run_all.py --web    # Launch modern React + Tailwind web dashboard at http://127.0.0.1:8000
-  python run_all.py         # Standard pipeline run (data checks, model training, figures)
-  python run_all.py --app   # Launch legacy Streamlit dashboard
-  python run_all.py --test-only # Run dataset & model integrity test suite
+### 3. Running the Integrated Web Applications
+
+- **Option A: Integrated React + FastAPI Platform (Recommended Week 3 MVP):**
+  ```powershell
+  # Serves the compiled React production UI and REST API on port 8000:
+  python run_all.py --web
+  # Alternatively, launch directly via uvicorn:
+  python -m uvicorn src.api.server:app --host 127.0.0.1 --port 8000
+  ```
+  Open your browser to: [http://127.0.0.1:8000](http://127.0.0.1:8000)
+
+- **Option B: React Live Development Server (Hot Module Replacement):**
+  ```powershell
+  # Vite also starts the local FastAPI backend if it is not already running:
+  cd frontend
+  npm run dev
+  ```
+  Open the URL printed by Vite, normally [http://127.0.0.1:5173](http://127.0.0.1:5173). No separate backend terminal is needed; Vite restarts the local API if it stops and waits for it before proxying API requests. To use an externally managed API, set `VITE_API_TARGET` before starting Vite.
+
+  The Overview defaults to plant-level 15-minute telemetry. Its capacity factor is calculated for the selected plant as average measured AC power divided by rated plant capacity; mean active power and solar generation also update with the selected plant and time resolution. These are historical telemetry measurements, not live readings.
+
+- **Option C: Streamlit Web Dashboard:**
+  ```powershell
+  python run_all.py --app
+  # Or directly:
+  python -m streamlit run app/app.py
+  ```
+  Open your browser to: [http://localhost:8501](http://localhost:8501)
+
+### 4. Running the Automated Test Suite
+
+- **Single Command Pipeline Check:**
+  ```powershell
+  python run_all.py --test-only
+  ```
+- **Run Individual Pytest Suites:**
+  ```powershell
+  # Run the complete test suite across all 4 weeks (27 passed, 1 skipped):
+  pytest tests/ -v
+
+  # Or run individual weekly test suites:
+  pytest tests/test_data_loader.py -v  # Week 1 data validation & schema
+  pytest tests/test_week2.py -v        # Week 2 LightGBM & PuLP LP optimizer
+  pytest tests/test_week3.py -v        # Week 3 REST API & React frontend tests
+  pytest tests/test_week4.py -v        # Week 4 Weather Stress, Carbon & PDF tests
   ```
 
-- **Direct Server Launch:**
-  ```bash
-  python -m uvicorn src.api.server:app --port 8000
-  ```
-
-- **macOS / Linux Shell:**
-  ```bash
-  ./run_all.sh              # Runs data checks, model training & figure exports
-  ./run_all.sh --app        # With Streamlit dashboard
-  ```
-
-- **Windows:**
-  ```cmd
-  run_all.bat               # In Command Prompt / PowerShell
-  run_all.bat --app         # With Streamlit dashboard
-  ```
-
-### 3. Programmatic Data Access
+### 5. Programmatic Data Access
 ```python
 from src.data.loader import load_processed_handoff
 
@@ -245,6 +290,30 @@ df_plant1 = load_processed_handoff(plant_id=1, freq="15min")
 # Load hourly aggregated plant handoff (816 rows)
 df_hourly = load_processed_handoff(plant_id=1, freq="hourly")
 ```
+
+---
+
+## Technical Specifications, Units & Assumptions
+
+### Target Variable & Power vs. Energy Units
+- **Target Variable:** Instantaneous AC Power (`ac_power`) in kilowatts (kW) and megawatts (MW).
+- **Cumulative Total Yield:** `total_yield` is a lifetime odometer reading with hardware resets and is strictly excluded from instantaneous power forecasting and dispatch equations.
+- **Energy Integration:** Power readings are integrated across time-step duration $\Delta t$ ($\Delta t = 0.25\text{ h}$ for 15-minute data; $\Delta t = 1.0\text{ h}$ for hourly data):
+  $$E (\text{kWh}) = P (\text{kW}) \times \Delta t (\text{h}), \quad E (\text{MWh}) = \frac{E (\text{kWh})}{1000}$$
+
+### Simulated Grid Demand Transparency Notice
+- **Actual Utility Telemetry:** Actual regional grid demand measurements are unavailable for these solar plants.
+- **Calibrated Synthetic Scenario:** The grid demand curve used in the Duck Curve explorer and battery arbitrage dispatch is a calibrated diurnal simulation scaled to plant capacity. It is explicitly labeled across all dashboards and API responses as a `Simulated Grid Demand Scenario`. Net load is calculated strictly as $\text{Net Load} = \text{Demand} - \text{Solar Generation}$.
+
+### Currency & Tariff Assumptions
+- **Currency:** Financial arbitrage calculations and web controls are denominated in USD ($) by default (with an Indian Rupee ₹ matrix preserved in `data/processed/Week2_TOU_Tariff_Cost_Matrix_Plant1_Plant2_2020.csv`).
+- **TOU Assumptions:** Rates represent assumed benchmark commercial/industrial Time-of-Use tariffs (e.g. Peak: \$0.25/kWh from 17:00–21:00, Off-peak: \$0.05/kWh, Normal: \$0.10/kWh, Export: \$0.04/kWh), not actual plant billing records.
+- **Weather Scenario Exception:** Weather-stress battery estimates use the INR matrix rates (Off-peak ₹5.30 from 22:00–05:00, Normal ₹6.70 from 10:00–17:00, Peak ₹7.30 from 06:00–09:00 and 18:00–21:00 per kWh), 95% one-way charge and discharge efficiency, ₹0.50/kWh throughput degradation, and zero export credit because the matrix defines no export rate. Demand is modeled from the normal-scenario solar profile and held constant across weather cases. These are scenario estimates, not actual bills.
+- **Annualized Savings Disclaimer:** Annual savings figures are scenario-based projections calculated as $\text{Daily Net Savings} \times 365$; they represent 365-day cycling extrapolations rather than audited 12-month utility bill records.
+- **Negative Arbitrage Handling:** When battery degradation wear and round-trip efficiency losses exceed the tariff spread, the LP optimizer stays idle or reports negative arbitrage rather than forcing artificial positive savings.
+
+### Known Environment Constraints
+- **Prophet Stan Binary (Windows Python 3.13):** On Windows Python 3.13, CmdStan may report an illegal system DLL relocation (`WinError 623`) when spawning the subprocess binary. LightGBM (GBDT) and Ridge Regression operate without external C++ binary runtime dependencies and serve as the verified primary forecasting models.
 
 ---
 
@@ -290,12 +359,68 @@ Implemented in [`src/optimization/battery_lp.py`](src/optimization/battery_lp.py
 
 ---
 
+## Week 4 Deliverables: Weather Stress Testing, Carbon Accounting & Executive Reports
+
+### 1. Extreme-Weather Stress Testing Module
+Implemented in [`src/analysis/weather_stress_test.py`](src/analysis/weather_stress_test.py):
+Evaluates model forecast error degradation and PuLP battery storage resilience across six calibrated meteorological anomaly scenarios:
+1. **Normal Baseline:** Measured baseline weather and solar generation.
+2. **Heavy Cloud Cover:** 50% solar irradiance reduction throughout the test period.
+3. **Monsoon Prolonged Low-Irradiance:** 75% solar irradiance reduction and a 4°C temperature decrease.
+4. **Sudden Midday Irradiance Drop:** One 75% drop from 11:00 to 14:00 on the first test day.
+5. **Multi-Day Continuous Solar Deficit:** 60% solar irradiance reduction over the first 72 hours.
+6. **Post-Storm Rapid Recovery:** 80% reduction through 11:00 on the first test day, then normal irradiance.
+
+**Physical Validation:** Strictly enforces astronomical night zero-inflation (when solar elevation $\le 0^\circ$ or GHI $\le 1.0\text{ W/m}^2$, output is clamped to $0.0\text{ kW}$).
+
+**Weather Dashboard Metric Definitions:** Solar generation, peak power, and Ridge/LightGBM daylight RMSE use the same seven-day test interval. The RMSE daylight mask is fixed from measured baseline output above 10 kW and reused for all scenarios; RMSE is in kW. The normal case uses measured telemetry; other weather cases are synthetic. Battery metrics are 24-hour optimization estimates using the fixed modeled-demand profile described above. Grid dependence is grid imports divided by modeled facility demand; autonomy is 100% minus grid dependence.
+
+### 2. Operational Carbon-Offset Accounting & CEA Provenance
+Implemented in [`src/analysis/carbon_accounting.py`](src/analysis/carbon_accounting.py):
+- **Official Regulatory Provenance:** Baseline emission factors derived directly from the official **Central Electricity Authority (CEA), Ministry of Power, Government of India** *CO2 Baseline Database for the Indian Power Sector, User Guide Version 19.0 (Published Dec 2024)*.
+- **Emission Factors:**
+  - National Weighted Average Baseline: **0.716 kg CO₂e / kWh**
+  - Thermal Marginal Fossil Peaker: **0.820 kg CO₂e / kWh**
+  - Clean Low-Carbon Grid Sensitivity: **0.500 kg CO₂e / kWh**
+  - High-Coal Subcritical Grid Sensitivity: **0.950 kg CO₂e / kWh**
+- **Boundary Condition:** Reflects operational marginal grid electricity displacement at the high-voltage transmission interface. Discloses that cradle-to-grave photovoltaic module and battery manufacturing life-cycle assessment (LCA) is excluded.
+- **Formulas:**
+  $$\text{Displaced Grid Electricity (kWh)} = \max(0, \text{Import}_{\text{without BESS}} - \text{Import}_{\text{with BESS}})$$
+  $$\text{Avoided CO}_2 (\text{kg}) = \left(\text{Displaced Grid kWh} + \text{Solar Self-Consumed kWh}\right) \times \text{EF}_{\text{grid}}$$
+
+### 3. Dynamic Executive Technical PDF Report Engine
+Implemented in [`src/visualization/executive_report.py`](src/visualization/executive_report.py):
+Generates a publication-grade, 6-page comprehensive executive PDF report via ReportLab 5.1.0:
+- **Page 1:** Executive Summary, 6 KPI cards, and mandatory regulatory disclaimers (CEA v19.0, synthetic demand, benchmark tariffs).
+- **Page 2:** Solar Resource & Plant Generation Dynamics (diurnal generation curves, temperature derating correlations).
+- **Page 3:** Solar Forecasting & Calibrated Uncertainty Bounds (Ridge vs LightGBM vs Prophet, $\pm 1.28\sigma$ and $\pm 1.96\sigma$ intervals).
+- **Page 4:** Substation Duck Curve & Grid Ramp Dynamics (15-min simulated load vs solar influx, net load belly, evening ramp rate $+1.53\text{ MW/h}$).
+- **Page 5:** PuLP Battery Storage Optimization (2.0 MWh / 0.5 MW BESS dispatch, state-of-charge envelope [10%-90%], degradation wear cost deduction).
+- **Page 6:** Extreme-Weather Stress Testing & Carbon Accounting (6-scenario stress matrix, CEA sensitivity table, and engineering roadmap).
+- **Canvas Architecture:** Two-pass `NumberedCanvas` computing dynamic running headers, footers, and exact page counts ("Page X of Y").
+
+### 4. REST API Endpoints (FastAPI)
+| Method | Endpoint | Description |
+|:---:|---|---|
+| `GET` | `/api/status` | System health check, active models, and pipeline status |
+| `GET` | `/api/plants` | Facility metadata (Gandikota Plant 1 & Ananthapuramu Plant 2) |
+| `GET` | `/api/overview` | Plant telemetry, diurnal KPIs, and rolling timeseries |
+| `GET` | `/api/forecast` | 24-hour day-ahead predictions with statistical bounds |
+| `GET` | `/api/duck-curve` | 15-minute simulated demand, solar generation, and net load |
+| `POST` | `/api/optimize` | PuLP LP battery dispatch optimization and tariff savings |
+| `GET` | `/api/weather-stress` | 6 extreme-weather stress scenarios, forecast errors, and BESS resilience |
+| `GET` | `/api/carbon` | CEA v19.0 carbon accounting, sensitivity matrix, and custom factor calculator |
+| `POST` | `/api/executive-report/generate` | Compiles dynamic 6-page executive PDF report via ReportLab |
+| `GET` | `/api/executive-report/download` | Streams generated executive PDF report to browser |
+
+---
+
 ## 4-Week Milestone Roadmap
 
 - [x] **Week 1:** Data cleaning, inverter coverage validation, weather EDA, time-based split, feature engineering, physical zero-inflation, baseline regression benchmarking, correlation matrices, and analytical figure generation.
 - [x] **Week 2:** Advanced 24-hour multi-step forecasting with LightGBM and Prophet, Time-of-Use (TOU) tariff matrix, PuLP Linear Programming battery arbitrage formulation, and Duck Curve net grid load explorer.
 - [x] **Week 3:** Enterprise React + Tailwind CSS dashboard & Streamlit app with statistical forecast bounds, radial battery State-of-Charge (SoC) gauges, automated charge/discharge schedules, and net tariff savings calculator; MVP frozen.
-- [ ] **Week 4:** Monsoon and cloud cover stress-testing, carbon offset calculations (kg CO₂ avoided), and downloadable executive grid advisory reports.
+- [x] **Week 4:** Extreme-weather stress-testing (6 scenarios), operational carbon offset accounting (CEA v19.0 provenance), dynamic 6-page ReportLab executive PDF reports, full REST API integration, and comprehensive test suite across all weeks.
 
 ---
 

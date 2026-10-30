@@ -16,6 +16,12 @@ root_dir = Path(__file__).resolve().parent.parent.parent
 if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 from src.data.loader import load_processed_handoff
 from src.models.forecasting import run_week2_forecasting_benchmark
 from src.optimization.battery_lp import BatterySpecs, TOUTariff, BatteryOptimizerLP

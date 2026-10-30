@@ -1,16 +1,5 @@
 import React from 'react';
-import {
-  BatteryCharging,
-  Sliders,
-  ShieldCheck,
-  Zap,
-  Activity,
-  ArrowRight,
-  TrendingDown,
-  Info,
-  CheckCircle2,
-  AlertTriangle,
-} from 'lucide-react';
+import { CheckCircle2, AlertTriangle } from 'lucide-react';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -20,9 +9,23 @@ import {
   XAxis,
   YAxis,
   Tooltip,
-  Legend,
   CartesianGrid,
 } from 'recharts';
+import PageHeader from './ui/PageHeader';
+import MetricCard from './ui/MetricCard';
+import ChartCard from './ui/ChartCard';
+import LoadingState from './ui/LoadingState';
+import ErrorState from './ui/ErrorState';
+import PrimaryButton from './ui/PrimaryButton';
+import LegendItem from './ui/LegendItem';
+import StatusBadge from './ui/StatusBadge';
+import { COLORS, axisProps, formatNumber, formatMoney } from './ui/chartTheme';
+
+const formatScheduleTime = (time) => {
+  const [hourText, minute] = time.split(':');
+  const hour = Number(hourText);
+  return `${hour % 12 || 12}:${minute} ${hour < 12 ? 'AM' : 'PM'}`;
+};
 
 export default function BatteryScheduleView({
   optData,
@@ -38,464 +41,395 @@ export default function BatteryScheduleView({
   const schedule = optData?.schedule || [];
   const kpis = optData?.kpis || {};
   const socGauge = optData?.soc_gauge || {};
+  const failed = !loading && optData && !schedule.length;
 
-  // Compute SVG arc for Radial SoC Gauge
   const radius = 64;
   const circumference = 2 * Math.PI * radius;
-  const currentSoc = socGauge.final_soc_pct || 20;
+  const currentSoc = socGauge.final_soc_pct ?? params.initial_soc_pct ?? 0;
   const strokeDashoffset = circumference - (currentSoc / 100) * circumference;
 
+  const nextAction = schedule.find((row) => row.charge_mw > 0.01 || row.discharge_mw > 0.01);
+
+  if (loading && !optData) {
+    return <LoadingState label="Solving battery schedule…" />;
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Battery & Dispatch Controller Configuration Card */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-orange-600" />
-            <h2 className="text-base font-semibold text-slate-900">
-              BESS Physical Parameters & TOU Tariff Arbitrage Controls
-            </h2>
-          </div>
-          <button
-            onClick={onRunOptimization}
-            disabled={loading}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-medium rounded-lg shadow-xs transition-colors disabled:opacity-50"
-          >
-            {loading ? 'Solving LP...' : 'Re-run PuLP Optimization'}
-          </button>
-        </div>
+    <div className="page-stack">
+      <PageHeader
+        title="Battery schedule"
+        description="The optimizer charges when power is cheap or solar is surplus, then discharges during peak tariff hours. Green is charging, blue is discharging, gray is idle."
+        actions={
+          <PrimaryButton onClick={onRunOptimization} disabled={loading}>
+            {loading ? 'Solving…' : 'Run optimization'}
+          </PrimaryButton>
+        }
+      />
 
-        {/* Sliders Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 text-xs">
-          {/* Capacity */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between font-medium">
-              <span className="text-slate-600">Storage Capacity</span>
-              <span className="text-slate-900 font-semibold">{params.battery_capacity_mwh} MWh</span>
-            </div>
-            <input
-              type="range"
-              min="1"
-              max="30"
-              step="1"
-              value={params.battery_capacity_mwh}
-              onChange={(e) => handleSliderChange('battery_capacity_mwh', e.target.value)}
-              className="w-full accent-orange-600 cursor-pointer"
-            />
-            <p className="text-[11px] text-slate-400">Total rated battery energy capacity</p>
-          </div>
+      {failed && (
+        <ErrorState
+          title="Optimization did not return a schedule"
+          message="The solver may be infeasible with the current constraints. Adjust capacity, power, or initial state of charge and run again."
+          onRetry={onRunOptimization}
+        />
+      )}
 
-          {/* Inverter Power */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between font-medium">
-              <span className="text-slate-600">Inverter PCS Rating</span>
-              <span className="text-slate-900 font-semibold">{params.max_inverter_power_mw} MW</span>
-            </div>
-            <input
-              type="range"
-              min="0.5"
-              max="15"
-              step="0.5"
-              value={params.max_inverter_power_mw}
-              onChange={(e) => handleSliderChange('max_inverter_power_mw', e.target.value)}
-              className="w-full accent-orange-600 cursor-pointer"
-            />
-            <p className="text-[11px] text-slate-400">Peak charge & discharge power limit</p>
-          </div>
-
-          {/* Round-trip Efficiency */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between font-medium">
-              <span className="text-slate-600">Round-Trip Efficiency</span>
-              <span className="text-slate-900 font-semibold">{params.round_trip_efficiency_pct}%</span>
-            </div>
-            <input
-              type="range"
-              min="75"
-              max="98"
-              step="0.5"
-              value={params.round_trip_efficiency_pct}
-              onChange={(e) => handleSliderChange('round_trip_efficiency_pct', e.target.value)}
-              className="w-full accent-orange-600 cursor-pointer"
-            />
-            <p className="text-[11px] text-slate-400">AC-to-AC round-trip system efficiency</p>
-          </div>
-
-          {/* Initial SoC */}
-          <div className="space-y-1.5">
-            <div className="flex justify-between font-medium">
-              <span className="text-slate-600">Initial State-of-Charge</span>
-              <span className="text-slate-900 font-semibold">{params.initial_soc_pct}%</span>
-            </div>
-            <input
-              type="range"
-              min="10"
-              max="80"
-              step="5"
-              value={params.initial_soc_pct}
-              onChange={(e) => handleSliderChange('initial_soc_pct', e.target.value)}
-              className="w-full accent-orange-600 cursor-pointer"
-            />
-            <p className="text-[11px] text-slate-400">Starting stored energy (Terminal $E_T \ge E_0$)</p>
+      <section className="surface-card p-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+          <h3 className="text-sm font-semibold text-slate-900">Battery settings</h3>
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-slate-500">Solar generation data:</span>
+            <button
+              type="button"
+              onClick={() => {
+                setParams((prev) => ({ ...prev, use_forecast: prev.use_forecast === false ? true : false }));
+              }}
+              className={`px-2.5 py-1 rounded-lg font-medium border transition-colors ${
+                params.use_forecast !== false
+                  ? 'bg-emerald-600 text-white border-emerald-600'
+                  : 'bg-slate-100 text-slate-700 border-slate-200'
+              }`}
+            >
+              {params.use_forecast !== false ? 'Next 24-hour forecast' : 'Past 24-hour data'}
+            </button>
           </div>
         </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 text-sm">
+          {[
+            {
+              key: 'battery_capacity_mwh',
+              label: 'Battery Capacity',
+              value: `${params.battery_capacity_mwh} MWh`,
+              min: 1,
+              max: 30,
+              step: 1,
+              hint: 'How much energy the battery can store',
+            },
+            {
+              key: 'max_inverter_power_mw',
+              label: 'Maximum Charge / Discharge Power',
+              value: `${params.max_inverter_power_mw} MW`,
+              min: 0.5,
+              max: 15,
+              step: 0.5,
+              hint: 'Fastest the battery can charge or discharge',
+            },
+            {
+              key: 'round_trip_efficiency_pct',
+              label: 'Battery Efficiency',
+              value: `${params.round_trip_efficiency_pct}%`,
+              min: 75,
+              max: 98,
+              step: 0.5,
+              hint: 'Energy available after charging and discharging',
+            },
+            {
+              key: 'initial_soc_pct',
+              label: 'Starting Battery Level',
+              value: `${params.initial_soc_pct}%`,
+              min: 10,
+              max: 80,
+              step: 5,
+              hint: 'Battery level to keep at the end of the schedule',
+            },
+          ].map((item) => (
+            <div key={item.key} className="space-y-1.5">
+              <div className="flex justify-between font-medium">
+                <span className="text-slate-600">{item.label}</span>
+                <span className="text-slate-900">{item.value}</span>
+              </div>
+              <input
+                type="range"
+                min={item.min}
+                max={item.max}
+                step={item.step}
+                value={params[item.key]}
+                onChange={(e) => handleSliderChange(item.key, e.target.value)}
+                className="range-control"
+                aria-label={item.label}
+              />
+              <p className="text-[11px] text-slate-400">{item.hint}</p>
+            </div>
+          ))}
+        </div>
 
-        {/* TOU Tariff Inputs */}
-        <div className="mt-4 pt-4 border-t border-slate-100">
-          <div className="text-xs font-semibold text-slate-700 mb-2">Time-of-Use (TOU) Industrial Electricity Rates ($/kWh)</div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
-            <div>
-              <label className="block text-slate-500 mb-1">Off-Peak (Night)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max="0.50"
-                value={params.off_peak_rate}
-                onChange={(e) => handleSliderChange('off_peak_rate', e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-slate-800 font-mono font-medium focus:outline-none focus:ring-1 focus:ring-orange-500"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">Normal / Shoulder</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.01"
-                max="0.50"
-                value={params.normal_rate}
-                onChange={(e) => handleSliderChange('normal_rate', e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-slate-800 font-mono font-medium focus:outline-none focus:ring-1 focus:ring-orange-500"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">Evening Peak (17:00-21:00)</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.05"
-                max="1.00"
-                value={params.peak_rate}
-                onChange={(e) => handleSliderChange('peak_rate', e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-slate-800 font-mono font-medium focus:outline-none focus:ring-1 focus:ring-orange-500"
-              />
-            </div>
-            <div>
-              <label className="block text-slate-500 mb-1">Solar Export Feed-In</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.0"
-                max="0.30"
-                value={params.export_feedin_rate}
-                onChange={(e) => handleSliderChange('export_feedin_rate', e.target.value)}
-                className="w-full bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5 text-slate-800 font-mono font-medium focus:outline-none focus:ring-1 focus:ring-orange-500"
-              />
-            </div>
+        <div className="mt-5 pt-5 border-t border-slate-100">
+          <p className="text-xs font-semibold text-slate-700">Electricity Rates</p>
+          <p className="text-[11px] text-slate-400 mb-3">
+            Prices for buying electricity or sending it to the grid, in $/kWh.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            {[
+              { key: 'off_peak_rate', label: 'Low-Cost Electricity' },
+              { key: 'normal_rate', label: 'Normal-Cost Electricity' },
+              { key: 'peak_rate', label: 'High-Cost Electricity (5 PM–9 PM)' },
+              { key: 'export_feedin_rate', label: 'Money Earned from Extra Solar Power' },
+            ].map((item) => (
+              <label key={item.key} className="block">
+                <span className="block text-xs text-slate-500 mb-1">{item.label}</span>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={params[item.key]}
+                  onChange={(e) => handleSliderChange(item.key, e.target.value)}
+                  className="input-control font-mono"
+                />
+              </label>
+            ))}
           </div>
         </div>
+      </section>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <MetricCard
+          label="Battery Level"
+          value={socGauge.final_soc_pct != null ? formatNumber(socGauge.final_soc_pct, 1) : '—'}
+          unit="%"
+          subtitle="End of the 24-hour schedule"
+          tone="blue"
+        />
+        <MetricCard
+          label="Capacity"
+          value={params.battery_capacity_mwh}
+          unit="MWh"
+          subtitle={`Power limit ${params.max_inverter_power_mw} MW`}
+          tone="emerald"
+        />
+        <MetricCard
+          label="Throughput"
+          value={kpis.battery_total_throughput_kwh != null ? formatNumber(kpis.battery_total_throughput_kwh / 1000, 2) : '—'}
+          unit="MWh"
+          subtitle={`${formatNumber(kpis.equivalent_full_cycles, 2)} equivalent cycles`}
+          tone="navy"
+        />
+        <MetricCard
+          label="Estimated savings"
+          value={kpis.net_arbitrage_savings != null ? `$${formatMoney(kpis.net_arbitrage_savings)}` : '—'}
+          subtitle={`Degradation $${formatMoney(kpis.degradation_wear_cost)}`}
+          tone="emerald"
+          badge={{ label: 'Estimated', tone: 'estimated' }}
+        />
       </div>
 
-      {/* Week 3 Deliverable: Battery State-of-Charge (SoC) Gauges Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Radial SoC Gauge Card */}
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900">
-                Battery State of Charge (SoC) Gauge
-              </h3>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded bg-orange-50 text-orange-700 border border-orange-200">
-                DoD Safe Range: 10%–90%
-              </span>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Real-time terminal energy state and operational boundary tracking
-            </p>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <section className="surface-card p-5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">Battery Level</h3>
+            <StatusBadge tone="info" className="whitespace-normal text-center">
+              Recommended Battery Range: 10%–90%
+            </StatusBadge>
           </div>
-
-          {/* SVG Radial Gauge */}
           <div className="flex items-center justify-center my-4">
             <div className="relative w-44 h-44 flex items-center justify-center">
-              <svg className="w-full h-full transform -rotate-90">
-                {/* Background Ring */}
+              <svg className="w-full h-full transform -rotate-90" aria-hidden="true">
+                <circle cx="88" cy="88" r={radius} stroke="#e2e8f0" strokeWidth="12" fill="transparent" />
                 <circle
                   cx="88"
                   cy="88"
                   r={radius}
-                  stroke="#f1f5f9"
-                  strokeWidth="12"
-                  fill="transparent"
-                />
-                {/* Safe Operating Range Arc (10% to 90%) */}
-                <circle
-                  cx="88"
-                  cy="88"
-                  r={radius}
-                  stroke="#e2e8f0"
-                  strokeWidth="12"
-                  fill="transparent"
-                  strokeDasharray={`${0.8 * circumference} ${circumference}`}
-                  strokeDashoffset={-0.1 * circumference}
-                />
-                {/* Active SoC Fill Arc */}
-                <circle
-                  cx="88"
-                  cy="88"
-                  r={radius}
-                  stroke="#f97316"
+                  stroke={COLORS.charge}
                   strokeWidth="12"
                   strokeLinecap="round"
                   fill="transparent"
                   strokeDasharray={circumference}
                   strokeDashoffset={strokeDashoffset}
-                  className="transition-all duration-700 ease-out"
                 />
               </svg>
-              {/* Inner Center Label */}
-              <div className="absolute flex flex-col items-center">
-                <span className="text-3xl font-extrabold text-slate-900">{currentSoc.toFixed(1)}%</span>
-                <span className="text-[11px] text-slate-500 font-medium uppercase tracking-wide">Terminal SoC</span>
+              <div className="absolute text-center">
+                <p className="text-3xl font-semibold text-slate-900">{Number(currentSoc).toFixed(1)}%</p>
+                <p className="text-[11px] text-slate-500">Final Battery Level</p>
               </div>
             </div>
           </div>
-
-          {/* Gauge Status Indicators */}
-          <div className="space-y-2 pt-2 border-t border-slate-100 text-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Terminal Condition ($E_T \ge E_0$):</span>
+          <div className="space-y-2 text-xs text-slate-600">
+            <div className="flex justify-between">
+              <span>Final Battery Limit</span>
               <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
-                <CheckCircle2 className="w-3.5 h-3.5" /> Satisfied
+                {socGauge.terminal_condition_met !== false ? (
+                  <>
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Satisfied
+                  </>
+                ) : (
+                  <>
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Check result
+                  </>
+                )}
               </span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Cycling Throughput (24h):</span>
-              <span className="font-mono font-medium text-slate-800">
-                {((kpis.battery_total_throughput_kwh || 0) / 1000).toFixed(2)} MWh
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-500">Equivalent Full Cycles:</span>
-              <span className="font-mono font-medium text-slate-800">
-                {(kpis.equivalent_full_cycles || 0).toFixed(2)} cycles
+            <div className="flex justify-between">
+              <span>Next Battery Action</span>
+              <span className="font-medium text-slate-800">
+                {nextAction
+                  ? `${nextAction.charge_mw > 0.01 ? 'Charge' : 'Discharge'} at ${formatScheduleTime(nextAction.hour)}`
+                  : 'Idle'}
               </span>
             </div>
           </div>
-        </div>
+        </section>
 
-        {/* Linear Boundary Visualizer & Key Metrics */}
-        <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5 shadow-xs flex flex-col justify-between">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              State-of-Charge Dynamics & Operational Limits
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Cell health protection boundaries preventing deep discharge and high-voltage overcharging
-            </p>
-          </div>
-
-          {/* Horizontal Boundary Bar */}
-          <div className="my-6 space-y-2">
-            <div className="flex justify-between text-xs font-medium text-slate-600">
-              <span>0% Empty</span>
-              <span className="text-orange-700 font-semibold">Min: {socGauge.min_soc_pct?.toFixed(1)}%</span>
-              <span className="text-emerald-700 font-semibold">Peak: {socGauge.max_soc_pct?.toFixed(1)}%</span>
-              <span>100% Full</span>
-            </div>
-            <div className="relative w-full h-7 bg-slate-100 rounded-lg overflow-hidden border border-slate-200 flex">
-              {/* Lockout zone 0-10% */}
-              <div className="w-[10%] bg-red-100 border-r border-red-300 flex items-center justify-center text-[9px] text-red-700 font-medium">
-                Lockout
-              </div>
-              {/* Safe zone 10-90% */}
-              <div className="w-[80%] bg-orange-50/50 relative flex items-center justify-center text-[10px] text-slate-500 font-medium">
-                Safe Operating Zone (10% - 90%)
-                {/* Active Range Fill */}
+        <section className="lg:col-span-2 surface-card p-5">
+          <h3 className="text-sm font-semibold text-slate-900">Battery Safety Limits</h3>
+          <p className="text-xs text-slate-500 mt-1 mb-4">
+            Battery limits for the current schedule.
+          </p>
+          <div className="relative w-full h-8 bg-slate-100 rounded-lg overflow-hidden flex text-[10px] font-medium">
+            <div className="w-[10%] bg-red-100 text-red-700 flex items-center justify-center">Too Low</div>
+            <div className="w-[80%] bg-emerald-50 text-slate-600 flex items-center justify-center relative">
+              Safe Battery Level (10%–90%)
+              {socGauge.min_soc_pct != null && socGauge.max_soc_pct != null && (
                 <div
-                  className="absolute h-full bg-gradient-to-r from-amber-400 to-orange-500 opacity-60 rounded-sm"
+                  className="absolute h-full bg-emerald-400/50"
                   style={{
                     left: `${Math.max(0, (socGauge.min_soc_pct - 10) / 0.8)}%`,
                     width: `${Math.min(100, (socGauge.max_soc_pct - socGauge.min_soc_pct) / 0.8)}%`,
                   }}
-                ></div>
-              </div>
-              {/* Lockout zone 90-100% */}
-              <div className="w-[10%] bg-red-100 border-l border-red-300 flex items-center justify-center text-[9px] text-red-700 font-medium">
-                Ceiling
-              </div>
+                />
+              )}
             </div>
-            <div className="flex justify-between text-[10px] text-slate-400">
-              <span>SoC_min: 10%</span>
-              <span>Cell Active Range: 10% – 90% DoD</span>
-              <span>SoC_max: 90%</span>
+            <div className="w-[10%] bg-red-100 text-red-700 flex items-center justify-center">Too High</div>
+          </div>
+          <div className="grid grid-cols-3 gap-3 mt-4 text-xs">
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-slate-500">Minimum Battery Level</p>
+              <p className="text-lg font-semibold">{socGauge.min_soc_pct != null ? `${socGauge.min_soc_pct.toFixed(1)}%` : '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-slate-500">Maximum Battery Level</p>
+              <p className="text-lg font-semibold">{socGauge.max_soc_pct != null ? `${socGauge.max_soc_pct.toFixed(1)}%` : '—'}</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3">
+              <p className="text-slate-500">Reduction in Peak Grid Usage</p>
+              <p className="text-lg font-semibold">{kpis.peak_shaving_percentage != null ? `${kpis.peak_shaving_percentage.toFixed(1)}%` : '—'}</p>
             </div>
           </div>
-
-          {/* Quick Metrics Strip */}
-          <div className="grid grid-cols-3 gap-4 pt-3 border-t border-slate-100 text-xs">
-            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-              <span className="text-slate-500 block text-[11px]">Minimum SoC Reached</span>
-              <span className="text-base font-bold text-slate-800">{socGauge.min_soc_pct?.toFixed(1)}%</span>
-              <span className="text-[10px] text-emerald-600 block">Within 10% limit</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-              <span className="text-slate-500 block text-[11px]">Maximum SoC Stored</span>
-              <span className="text-base font-bold text-slate-800">{socGauge.max_soc_pct?.toFixed(1)}%</span>
-              <span className="text-[10px] text-emerald-600 block">Within 90% limit</span>
-            </div>
-            <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-100">
-              <span className="text-slate-500 block text-[11px]">Degradation Wear Cost</span>
-              <span className="text-base font-bold text-slate-800">${kpis.degradation_wear_cost?.toFixed(2)}</span>
-              <span className="text-[10px] text-slate-400 block">$0.005 / kWh wear</span>
-            </div>
-          </div>
-        </div>
+        </section>
       </div>
 
-      {/* Week 3 Deliverable: Automated Charge / Discharge Schedule Visualizer */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              24-Hour Battery Power Dispatch & State of Charge Progression
-            </h3>
-            <p className="text-xs text-slate-500">
-              Charges with excess daytime solar (positive bars) and discharges during evening peak hours 17:00–21:00 (negative bars)
-            </p>
+      <ChartCard
+        title="Battery Charging & Usage — Next 24 Hours"
+        description="Green bars show when and how fast the battery charges. Blue bars show power supplied from the battery. The purple line shows the battery level; hover over an hour to see how much energy remains."
+        legend={
+          <div className="flex flex-wrap gap-4">
+            <LegendItem color={COLORS.charge} label="Charging Power (MW)" />
+            <LegendItem color={COLORS.discharge} label="Power Supplied (MW)" />
+            <LegendItem color="#7c3aed" label="Battery Level (%)" />
           </div>
-          <div className="flex items-center gap-4 text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 bg-blue-500 rounded-xs"></span>
-              <span className="text-slate-600">Charge Power (MW)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 bg-orange-500 rounded-xs"></span>
-              <span className="text-slate-600">Discharge Power (MW)</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-purple-600"></span>
-              <span className="text-slate-600">SoC (%)</span>
-            </div>
-          </div>
-        </div>
-
+        }
+      >
         <div className="h-80 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={schedule} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="hour" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis
-                yAxisId="left"
-                stroke="#94a3b8"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-                unit=" MW"
-              />
-              <YAxis
-                yAxisId="right"
-                orientation="right"
-                stroke="#94a3b8"
-                fontSize={11}
-                tickLine={false}
-                axisLine={false}
-                domain={[0, 100]}
-                unit="%"
-              />
+            <ComposedChart data={schedule} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis dataKey="hour" {...axisProps} />
+              <YAxis yAxisId="left" {...axisProps} axisLine={false} unit=" MW" />
+              <YAxis yAxisId="right" orientation="right" {...axisProps} axisLine={false} domain={[0, 100]} unit="%" />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '0.5rem',
-                  fontSize: '0.75rem',
+                content={({ active, payload }) => {
+                  const row = payload?.[0]?.payload;
+                  if (!active || !row) return null;
+
+                  const isIdle = row.charge_mw <= 0.01 && row.discharge_mw <= 0.01;
+                  return (
+                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-lg text-xs">
+                      <p className="font-semibold text-slate-900 mb-2">{row.hour}</p>
+                      <p className="text-emerald-700">
+                        Charging Power: {formatNumber(row.charge_mw, 2)} MW
+                      </p>
+                      <p className="text-blue-700">
+                        Power Supplied: {formatNumber(row.discharge_mw, 2)} MW
+                      </p>
+                      <p className="text-violet-700">
+                        Battery Level: {formatNumber(row.battery_soc_pct, 1)}%
+                      </p>
+                      <p className="text-slate-700">
+                        Energy Remaining: {formatNumber(row.battery_energy_mwh, 2)} MWh
+                      </p>
+                      {isIdle && <p className="text-slate-500 mt-1">Battery is idle this hour.</p>}
+                    </div>
+                  );
                 }}
               />
-              <Bar yAxisId="left" dataKey="charge_mw" name="Charging Power (MW)" fill="#3b82f6" />
-              <Bar
-                yAxisId="left"
-                dataKey={(d) => -d.discharge_mw}
-                name="Discharging Power (MW)"
-                fill="#f97316"
-              />
+              <Bar yAxisId="left" dataKey="charge_mw" name="Charging Power (MW)" fill={COLORS.charge} />
+              <Bar yAxisId="left" dataKey={(d) => -d.discharge_mw} name="Power Supplied (MW)" fill={COLORS.discharge} />
               <Line
                 yAxisId="right"
                 type="monotone"
                 dataKey="battery_soc_pct"
-                name="State of Charge (%)"
-                stroke="#9333ea"
-                strokeWidth={2.5}
-                dot={{ r: 3 }}
+                name="Battery Level (%)"
+                stroke="#7c3aed"
+                strokeWidth={2}
+                dot={{ r: 2 }}
               />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </ChartCard>
 
-      {/* Duck Curve Mitigation Grid Load Shifting Chart */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              Duck Curve Shifting: Unmanaged vs. BESS Managed Grid Import
-            </h3>
-            <p className="text-xs text-slate-500">
-              Peak import demand shaved from {((kpis.peak_grid_import_without_bess_kw || 0)/1000).toFixed(2)} MW down to {((kpis.peak_grid_import_with_bess_kw || 0)/1000).toFixed(2)} MW ({kpis.peak_shaving_percentage?.toFixed(1)}% peak reduction)
-            </p>
+      <ChartCard
+        title="Electricity Grid Usage: With vs. Without Battery"
+        description="Compare hourly grid power with and without the battery. Discharging can reduce grid use; charging can temporarily increase it. Solar generation is shown for context. Grid usage is based on modeled demand, not utility meter readings."
+        legend={
+          <div className="flex flex-wrap gap-4">
+            <LegendItem color={COLORS.solar} label="Solar Power Generated" />
+            <LegendItem color={COLORS.gridImport} label="Grid Usage Without Battery" />
+            <LegendItem color={COLORS.managed} label="Grid Usage With Battery" />
           </div>
-          <div className="flex items-center gap-4 text-xs">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-red-500"></span>
-              <span className="text-slate-600">Unmanaged Grid Import</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-0.5 bg-emerald-600"></span>
-              <span className="text-slate-600">Optimized with BESS</span>
-            </div>
-          </div>
-        </div>
-
+        }
+      >
         <div className="h-72 w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={schedule} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
-              <XAxis dataKey="hour" stroke="#94a3b8" fontSize={11} tickLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} unit=" MW" />
+            <ComposedChart data={schedule} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
+              <XAxis dataKey="hour" {...axisProps} />
+              <YAxis {...axisProps} axisLine={false} unit=" MW" />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: '#ffffff',
-                  border: '1px solid #e2e8f0',
-                  borderRadius: '0.5rem',
-                  fontSize: '0.75rem',
+                content={({ active, payload }) => {
+                  const row = payload?.[0]?.payload;
+                  if (!active || !row) return null;
+
+                  return (
+                    <div className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 shadow-lg text-xs">
+                      <p className="font-semibold text-slate-900 mb-2">{row.hour}</p>
+                      <p className="text-amber-700">
+                        Solar Power Generated: {formatNumber(row.solar_mw, 2)} MW
+                      </p>
+                      <p className="text-orange-700">
+                        Grid Usage Without Battery: {formatNumber(row.unmanaged_import_mw, 2)} MW
+                      </p>
+                      <p className="text-teal-700">
+                        Grid Usage With Battery: {formatNumber(row.managed_import_mw, 2)} MW
+                      </p>
+                    </div>
+                  );
                 }}
               />
               <Area
                 type="monotone"
                 dataKey="solar_mw"
-                name="Solar Output (MW)"
-                fill="#fef3c7"
-                stroke="#f59e0b"
-                strokeWidth={1.5}
+                name="Solar Power Generated"
+                fill={COLORS.solarFill}
+                stroke={COLORS.solar}
               />
               <Line
-                type="monotone"
+                type="stepAfter"
                 dataKey="unmanaged_import_mw"
-                name="Unmanaged Import (MW)"
-                stroke="#ef4444"
+                name="Grid Usage Without Battery"
+                stroke={COLORS.gridImport}
                 strokeWidth={2}
                 dot={false}
               />
               <Line
-                type="monotone"
+                type="stepAfter"
                 dataKey="managed_import_mw"
-                name="Optimized with BESS (MW)"
-                stroke="#10b981"
-                strokeWidth={2.5}
+                name="Grid Usage With Battery"
+                stroke={COLORS.managed}
+                strokeWidth={2.2}
                 dot={false}
               />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
-      </div>
+      </ChartCard>
     </div>
   );
 }

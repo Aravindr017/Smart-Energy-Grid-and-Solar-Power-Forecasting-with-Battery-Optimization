@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
 import TopBar from './components/TopBar';
 import OverviewView from './components/OverviewView';
@@ -6,6 +6,9 @@ import ForecastView from './components/ForecastView';
 import BatteryScheduleView from './components/BatteryScheduleView';
 import TariffSavingsView from './components/TariffSavingsView';
 import DataExplorerView from './components/DataExplorerView';
+import WeatherStressView from './components/WeatherStressView';
+import CarbonAccountingView from './components/CarbonAccountingView';
+import ExecutiveReportView from './components/ExecutiveReportView';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
@@ -13,6 +16,9 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isDarkTheme, setIsDarkTheme] = useState(
+    () => window.localStorage.getItem('solaris-theme') === 'dark',
+  );
 
   const [plants, setPlants] = useState([
     {
@@ -37,7 +43,7 @@ export default function App() {
     },
   ]);
 
-  const [granularity, setGranularity] = useState('hourly');
+  const [granularity, setGranularity] = useState('15min_plant');
   const [overviewData, setOverviewData] = useState(null);
   const [forecastData, setForecastData] = useState(null);
   const [optData, setOptData] = useState(null);
@@ -45,8 +51,8 @@ export default function App() {
   const [loadingOverview, setLoadingOverview] = useState(true);
   const [loadingForecast, setLoadingForecast] = useState(true);
   const [loadingOpt, setLoadingOpt] = useState(true);
+  const [overviewError, setOverviewError] = useState(null);
 
-  // Battery and Tariff Optimization Configuration Parameters
   const [params, setParams] = useState({
     plant_id: 1,
     battery_capacity_mwh: 10.0,
@@ -61,7 +67,11 @@ export default function App() {
     installed_cost_per_kwh: 250.0,
   });
 
-  // Load facility list
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDarkTheme);
+    window.localStorage.setItem('solaris-theme', isDarkTheme ? 'dark' : 'light');
+  }, [isDarkTheme]);
+
   useEffect(() => {
     fetch('/api/plants')
       .then((res) => res.json())
@@ -73,32 +83,44 @@ export default function App() {
       .catch(() => console.log('Using default plant metadata'));
   }, []);
 
-  // Sync params with plantId
   useEffect(() => {
     setParams((prev) => ({ ...prev, plant_id: plantId }));
   }, [plantId]);
 
-  // Load Overview Data
-  const loadOverview = () => {
+  const loadOverview = useCallback(() => {
     setLoadingOverview(true);
+    setOverviewError(null);
     fetch(`/api/overview?plant_id=${plantId}&granularity=${granularity}&limit=72`)
-      .then((res) => res.json())
+      .then(async (res) => {
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) {
+          const detail = payload?.detail || `HTTP ${res.status}`;
+          throw new Error(typeof detail === 'string' ? detail : 'Overview request failed');
+        }
+        if (!payload?.kpis || !Array.isArray(payload?.timeseries)) {
+          throw new Error('The plant telemetry service did not return results for this selection.');
+        }
+        return payload;
+      })
       .then((data) => {
         setOverviewData(data);
         setLoadingOverview(false);
       })
       .catch((err) => {
         console.error('Failed to load overview:', err);
+        setOverviewData(null);
+        setOverviewError(err.message === 'Failed to fetch'
+          ? 'Cannot reach the SOLARIS API. Start the backend on port 8000, then refresh.'
+          : err.message);
         setLoadingOverview(false);
       });
-  };
+  }, [plantId, granularity]);
 
   useEffect(() => {
     loadOverview();
-  }, [plantId, granularity]);
+  }, [loadOverview]);
 
-  // Load Forecast Data
-  const loadForecast = () => {
+  const loadForecast = useCallback(() => {
     setLoadingForecast(true);
     fetch(`/api/forecast?plant_id=${plantId}&slice_length=72`)
       .then((res) => res.json())
@@ -110,14 +132,13 @@ export default function App() {
         console.error('Failed to load forecast:', err);
         setLoadingForecast(false);
       });
-  };
+  }, [plantId]);
 
   useEffect(() => {
     loadForecast();
-  }, [plantId]);
+  }, [loadForecast]);
 
-  // Run PuLP LP Optimization
-  const runOptimization = () => {
+  const runOptimization = useCallback(() => {
     setLoadingOpt(true);
     fetch('/api/optimize', {
       method: 'POST',
@@ -133,13 +154,12 @@ export default function App() {
         console.error('Failed to run optimization:', err);
         setLoadingOpt(false);
       });
-  };
+  }, [params]);
 
   useEffect(() => {
     runOptimization();
-  }, [plantId]);
+  }, [runOptimization]);
 
-  // Manual Refresh Handler
   const handleRefresh = () => {
     setIsRefreshing(true);
     loadOverview();
@@ -151,21 +171,8 @@ export default function App() {
   const currentPlant = plants.find((p) => p.id === plantId) || plants[0];
 
   return (
-    <div className="relative min-h-screen text-slate-800 font-sans antialiased overflow-x-hidden">
-      {/* Light-colored Background with Solar Farm Image & Solar Gradient Veil */}
-      <div
-        className="fixed inset-0 z-0 bg-cover bg-center bg-no-repeat pointer-events-none transition-all duration-700"
-        style={{
-          backgroundImage: "url('/solar_farm_bg.jpg')",
-        }}
-      >
-        {/* Soft white and light-orange luminous overlay for high contrast & elegance */}
-        <div className="absolute inset-0 bg-gradient-to-br from-white/94 via-orange-50/90 to-amber-50/85 backdrop-blur-[2px]" />
-      </div>
-
-      {/* Main Content Layout with Sidebar */}
+    <div className="relative min-h-screen bg-slate-50 text-slate-800 font-sans antialiased overflow-x-hidden">
       <div className="relative z-10 flex min-h-screen">
-        {/* Responsive Sidebar */}
         <Sidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
@@ -176,26 +183,24 @@ export default function App() {
           setCollapsed={setSidebarCollapsed}
           mobileOpen={mobileSidebarOpen}
           setMobileOpen={setMobileSidebarOpen}
-          optData={optData}
         />
 
-        {/* Right Main Body */}
         <div
           className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ease-in-out ${
             sidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'
           }`}
         >
-          {/* Top Bar Header */}
           <TopBar
             activeTab={activeTab}
             plantInfo={currentPlant}
             onOpenMobileSidebar={() => setMobileSidebarOpen(true)}
             onRefresh={handleRefresh}
             isRefreshing={isRefreshing}
+            isDarkTheme={isDarkTheme}
+            onToggleTheme={() => setIsDarkTheme((current) => !current)}
           />
 
-          {/* Tab Content Container */}
-          <main className="flex-1 w-full max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 py-6">
+          <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
             {activeTab === 'overview' && (
               <OverviewView
                 data={overviewData}
@@ -203,6 +208,10 @@ export default function App() {
                 granularity={granularity}
                 setGranularity={setGranularity}
                 loading={loadingOverview}
+                error={overviewError}
+                onRetry={loadOverview}
+                forecastData={forecastData}
+                optData={optData}
               />
             )}
 
@@ -221,23 +230,28 @@ export default function App() {
             )}
 
             {activeTab === 'savings' && (
-              <TariffSavingsView optData={optData} params={params} />
+              <TariffSavingsView
+                optData={optData}
+                params={params}
+                setParams={setParams}
+                onRunOptimization={runOptimization}
+                loading={loadingOpt}
+              />
             )}
 
             {activeTab === 'data' && <DataExplorerView plantId={plantId} />}
+
+            {activeTab === 'weather' && <WeatherStressView plantId={plantId} />}
+
+            {activeTab === 'carbon' && <CarbonAccountingView plantId={plantId} />}
+
+            {activeTab === 'report' && <ExecutiveReportView plantId={plantId} />}
           </main>
 
-          {/* Footer */}
-          <footer className="mt-auto py-5 px-4 sm:px-8 bg-white/70 backdrop-blur-md border-t border-slate-200/60 text-xs text-slate-500">
+          <footer className="mt-auto py-4 px-4 sm:px-8 border-t border-slate-200 bg-white text-xs text-slate-500">
             <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <span className="font-semibold text-slate-700">HeliosGrid Solar & BESS</span>
-                <span>•</span>
-                <span>PuLP Linear Programming Energy Arbitrage</span>
-              </div>
-              <div className="text-[11px] text-slate-400">
-                Week 3 Production MVP • 24-Hour Solar Forecasting with Battery Storage
-              </div>
+              <span className="font-medium text-slate-700">SOLARIS Energy Platform</span>
+              <span>Solar forecasting, battery optimization, weather stress, and carbon estimates</span>
             </div>
           </footer>
         </div>

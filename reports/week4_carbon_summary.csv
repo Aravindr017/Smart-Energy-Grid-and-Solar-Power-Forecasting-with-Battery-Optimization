@@ -1,0 +1,5 @@
+grid_emission_factor_kg_per_kwh,grid_import_without_bess_kwh,grid_import_with_bess_kwh,displaced_grid_electricity_kwh,baseline_grid_emissions_kg,optimized_grid_emissions_kg,storage_avoided_co2_kg,storage_avoided_co2_tonnes,solar_self_consumed_avoided_co2_kg,solar_self_consumed_avoided_co2_tonnes,total_avoided_co2_kg,total_avoided_co2_tonnes,emissions_reduction_pct,annual_projected_avoided_co2_tonnes,scenario,factor_label
+0.5,64291.87,57012.38,7279.49,32145.93,28506.19,3639.74,3.6397,31633.94,31.6339,35273.69,35.2737,11.32,12874.9,Normal (Clear Sky),Clean / Low-Carbon Grid (0.50)
+0.716,64291.87,57012.38,7279.49,46032.98,40820.86,5212.11,5.2121,45299.81,45.2998,50511.92,50.5119,11.32,18436.85,Normal (Clear Sky),Official CEA Baseline 2024 (0.716)
+0.82,64291.87,57012.38,7279.49,52719.33,46750.15,5969.18,5.9692,51879.67,51.8797,57848.85,57.8489,11.32,21114.83,Normal (Clear Sky),CEA Thermal Marginal (0.820)
+0.95,64291.87,57012.38,7279.49,61077.28,54161.76,6915.52,6.9155,60104.5,60.1045,67020.01,67.02,11.32,24462.3,Normal (Clear Sky),High-Coal Subcritical Grid (0.95)
