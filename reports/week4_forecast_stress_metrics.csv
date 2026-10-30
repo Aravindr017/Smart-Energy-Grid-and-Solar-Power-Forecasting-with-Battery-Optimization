@@ -1,7 +1,7 @@
-scenario_name,scenario_label,is_synthetic,mean_actual_generation_kw,peak_actual_generation_kw,ridge_daylight_rmse_kw,ridge_daylight_mae_kw,ridge_daylight_r2,lgb_daylight_rmse_kw,lgb_daylight_mae_kw,lgb_daylight_r2
-normal,Normal Baseline Conditions,False,5994.44,26293.79,3860.56,3053.74,0.7155,3590.81,2792.61,0.7539
-heavy_cloud,Heavy Cloud Cover Overcast,True,2997.22,13146.9,1761.9,1431.69,0.763,6197.23,5364.31,-1.932
-monsoon_prolonged,Monsoon Prolonged Low-Irradiance,True,1498.61,6573.45,991.03,869.75,0.7001,8356.23,7445.88,-20.323
-sudden_drop,Sudden Midday Irradiance Drop,True,3775.48,22417.39,2672.59,2006.88,0.7747,6624.06,5253.1,-0.3839
-multi_day_low,Multi-Day Continuous Solar Deficit,True,2397.78,10517.52,1387.86,1143.48,0.7702,7060.08,6225.64,-4.9458
-recovery,Post-Storm Rapid Solar Recovery,True,3724.12,25740.47,2532.66,1774.24,0.864,6312.45,5116.1,0.155
+plant_id,plant_rated_capacity_mw,scenario_name,scenario_label,is_synthetic,mean_actual_generation_kw,total_solar_generation_7d_mwh,peak_actual_generation_kw,forecast_test_start,forecast_test_end,forecast_test_hours,forecast_daylight_hours,ridge_daylight_rmse_kw,ridge_daylight_mae_kw,ridge_daylight_r2,lgb_daylight_rmse_kw,lgb_daylight_mae_kw,lgb_daylight_r2
+1,29.5,normal,Normal Weather,False,5994.44,1007.07,26293.79,2020-06-11 00:00,2020-06-17 23:00,168,91,3860.56,3053.74,0.7155,3590.81,2792.61,0.7539
+1,29.5,heavy_cloud,Cloudy Weather,True,2997.22,503.53,13146.9,2020-06-11 00:00,2020-06-17 23:00,168,91,1761.9,1431.69,0.763,2232.85,1847.22,0.6194
+1,29.5,monsoon_prolonged,Heavy Rain / Monsoon,True,1498.61,251.77,6573.45,2020-06-11 00:00,2020-06-17 23:00,168,91,991.03,869.75,0.7001,1127.85,901.2,0.6116
+1,29.5,sudden_drop,Sudden Solar Drop,True,5704.9,958.42,26293.79,2020-06-11 00:00,2020-06-17 23:00,168,91,3680.89,2852.97,0.7444,3572.71,2773.8,0.7592
+1,29.5,multi_day_low,Low Sunlight for Several Days,True,4434.17,744.94,24023.69,2020-06-11 00:00,2020-06-17 23:00,168,91,3094.11,2233.99,0.7713,3170.26,2275.66,0.7599
+1,29.5,recovery,Weather Improving,True,5767.2,968.89,26293.79,2020-06-11 00:00,2020-06-17 23:00,168,91,3772.96,2916.86,0.7443,3492.88,2669.32,0.7809
