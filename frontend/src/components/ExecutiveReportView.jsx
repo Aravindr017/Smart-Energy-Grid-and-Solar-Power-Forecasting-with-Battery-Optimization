@@ -17,7 +17,7 @@ export default function ExecutiveReportView({ plantId = 1 }) {
     { num: '2', title: 'Solar generation', desc: 'Diurnal power, irradiance, and temperature context.' },
     { num: '3', title: 'Forecasting', desc: 'Model comparison and uncertainty bounds from the existing forecast run.' },
     { num: '4', title: 'Duck curve', desc: 'Demand profile, net load, and evening ramp.' },
-    { num: '5', title: 'Battery optimization', desc: 'Dispatch, state of charge, and estimated savings.' },
+    { num: '5', title: 'Battery optimization', desc: 'Dispatch, state of charge, and estimated savings based on simulated INR tariff assumptions.' },
     { num: '6', title: 'Weather and carbon', desc: 'Stress scenarios and estimated avoided emissions.' },
   ];
 

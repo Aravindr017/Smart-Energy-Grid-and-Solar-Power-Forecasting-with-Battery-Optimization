@@ -53,15 +53,7 @@ PLANT_RATED_CAPACITY_MW = {1: 29.5, 2: 26.2}
 
 def create_weather_stress_tariff() -> TOUTariff:
     """Build the INR tariff represented in the Week 2 tariff matrix."""
-    return TOUTariff(
-        off_peak_rate=5.30,
-        normal_rate=6.70,
-        peak_rate=7.30,
-        export_feedin_rate=0.0,
-        off_peak_hours=(22, 23, 0, 1, 2, 3, 4, 5),
-        normal_hours=(10, 11, 12, 13, 14, 15, 16, 17),
-        peak_hours=(6, 7, 8, 9, 18, 19, 20, 21),
-    )
+    return TOUTariff()
 
 
 # Scenario Definitions
@@ -334,7 +326,7 @@ def evaluate_battery_resilience_under_stress(
             soc_initial=0.20,
             soc_min=0.10,
             soc_max=0.90,
-            degradation_cost_per_kwh=0.50,
+            degradation_cost_per_kwh=BatterySpecs().degradation_cost_per_kwh,
         )
     if tariff is None:
         tariff = create_weather_stress_tariff()

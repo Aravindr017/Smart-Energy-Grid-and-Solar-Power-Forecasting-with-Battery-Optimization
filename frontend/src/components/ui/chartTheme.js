@@ -53,3 +53,13 @@ export function formatMoney(value) {
     maximumFractionDigits: 2,
   });
 }
+
+export function formatINR(value) {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) return '—';
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(Number(value));
+}

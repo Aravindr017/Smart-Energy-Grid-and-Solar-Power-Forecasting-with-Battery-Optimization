@@ -12,6 +12,16 @@ from typing import Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 import pulp
+from src.optimization.tariff_config import (
+    BATTERY_DEGRADATION_COST_INR_PER_KWH,
+    EXPORT_FEEDIN_RATE_INR_PER_KWH,
+    NORMAL_HOURS,
+    NORMAL_RATE_INR_PER_KWH,
+    OFF_PEAK_HOURS,
+    OFF_PEAK_RATE_INR_PER_KWH,
+    PEAK_HOURS,
+    PEAK_RATE_INR_PER_KWH,
+)
 
 
 @dataclass
@@ -28,7 +38,7 @@ class BatterySpecs:
         soc_min: Minimum allowable State-of-Charge as fraction of capacity (e.g. 0.10).
         soc_max: Maximum allowable State-of-Charge as fraction of capacity (e.g. 0.90).
         soc_initial: Initial State-of-Charge at start of horizon (e.g. 0.20).
-        degradation_cost_per_kwh: Amortized battery throughput degradation wear cost ($/kWh).
+        degradation_cost_per_kwh: Amortized battery throughput degradation wear cost (INR/kWh).
     """
     capacity_kwh: float = 5000.0
     max_charge_kw: float = 2500.0
@@ -38,7 +48,7 @@ class BatterySpecs:
     soc_min: float = 0.10
     soc_max: float = 0.90
     soc_initial: float = 0.20
-    degradation_cost_per_kwh: float = 0.005
+    degradation_cost_per_kwh: float = BATTERY_DEGRADATION_COST_INR_PER_KWH
 
     @property
     def round_trip_efficiency(self) -> float:
@@ -56,14 +66,14 @@ class TOUTariff:
     - Normal / Shoulder (daytime): Moderate cost
     - Peak (evening 17:00-21:00): Highest cost (Duck curve peak demand)
     """
-    off_peak_rate: float = 0.05    # $/kWh (or ₹/kWh)
-    normal_rate: float = 0.10      # $/kWh
-    peak_rate: float = 0.25        # $/kWh
-    export_feedin_rate: float = 0.04  # $/kWh (solar export back to grid)
-    
-    peak_hours: Tuple[int, ...] = (17, 18, 19, 20)
-    normal_hours: Tuple[int, ...] = (6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 21)
-    off_peak_hours: Tuple[int, ...] = (22, 23, 0, 1, 2, 3, 4, 5)
+    off_peak_rate: float = OFF_PEAK_RATE_INR_PER_KWH
+    normal_rate: float = NORMAL_RATE_INR_PER_KWH
+    peak_rate: float = PEAK_RATE_INR_PER_KWH
+    export_feedin_rate: float = EXPORT_FEEDIN_RATE_INR_PER_KWH
+
+    peak_hours: Tuple[int, ...] = PEAK_HOURS
+    normal_hours: Tuple[int, ...] = NORMAL_HOURS
+    off_peak_hours: Tuple[int, ...] = OFF_PEAK_HOURS
 
     def get_rates_for_series(self, timestamps: pd.Series) -> Tuple[np.ndarray, np.ndarray]:
         """

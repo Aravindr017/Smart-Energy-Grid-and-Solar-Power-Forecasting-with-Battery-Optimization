@@ -19,7 +19,7 @@ import ErrorState from './ui/ErrorState';
 import PrimaryButton from './ui/PrimaryButton';
 import LegendItem from './ui/LegendItem';
 import StatusBadge from './ui/StatusBadge';
-import { COLORS, axisProps, formatNumber, formatMoney } from './ui/chartTheme';
+import { COLORS, axisProps, formatNumber, formatINR } from './ui/chartTheme';
 
 const formatScheduleTime = (time) => {
   const [hourText, minute] = time.split(':');
@@ -58,7 +58,9 @@ export default function BatteryScheduleView({
     <div className="page-stack">
       <PageHeader
         title="Battery schedule"
-        description="The optimizer charges when power is cheap or solar is surplus, then discharges during peak tariff hours. Green is charging, blue is discharging, gray is idle."
+        description={Number.isFinite(params.off_peak_rate) && Number.isFinite(params.normal_rate) && Number.isFinite(params.peak_rate)
+          ? `Estimated battery dispatch uses simulated INR tariffs: ₹${params.off_peak_rate.toFixed(2)}/kWh off-peak (22:00–06:00), ₹${params.normal_rate.toFixed(2)}/kWh normal (10:00–18:00), and ₹${params.peak_rate.toFixed(2)}/kWh peak (06:00–10:00 and 18:00–22:00). Green is charging, blue is discharging, gray is idle.`
+          : 'Estimated battery dispatch uses simulated INR tariff assumptions. Green is charging, blue is discharging, gray is idle.'}
         actions={
           <PrimaryButton onClick={onRunOptimization} disabled={loading}>
             {loading ? 'Solving…' : 'Run optimization'}
@@ -156,20 +158,20 @@ export default function BatteryScheduleView({
         <div className="mt-5 pt-5 border-t border-slate-100">
           <p className="text-xs font-semibold text-slate-700">Electricity Rates</p>
           <p className="text-[11px] text-slate-400 mb-3">
-            Prices for buying electricity or sending it to the grid, in $/kWh.
+            Simulated prices for buying or exporting electricity, in INR/kWh. Financial results are estimates, not actual bills or guaranteed savings.
           </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
             {[
               { key: 'off_peak_rate', label: 'Low-Cost Electricity' },
               { key: 'normal_rate', label: 'Normal-Cost Electricity' },
-              { key: 'peak_rate', label: 'High-Cost Electricity (5 PM–9 PM)' },
+              { key: 'peak_rate', label: 'Peak Electricity (6–10 AM, 6–10 PM)' },
               { key: 'export_feedin_rate', label: 'Money Earned from Extra Solar Power' },
             ].map((item) => (
               <label key={item.key} className="block">
                 <span className="block text-xs text-slate-500 mb-1">{item.label}</span>
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.1"
                   value={params[item.key]}
                   onChange={(e) => handleSliderChange(item.key, e.target.value)}
                   className="input-control font-mono"
@@ -204,8 +206,8 @@ export default function BatteryScheduleView({
         />
         <MetricCard
           label="Estimated savings"
-          value={kpis.net_arbitrage_savings != null ? `$${formatMoney(kpis.net_arbitrage_savings)}` : '—'}
-          subtitle={`Degradation $${formatMoney(kpis.degradation_wear_cost)}`}
+          value={formatINR(kpis.net_arbitrage_savings)}
+          subtitle={`Estimated battery wear ${formatINR(kpis.degradation_wear_cost)}`}
           tone="emerald"
           badge={{ label: 'Estimated', tone: 'estimated' }}
         />

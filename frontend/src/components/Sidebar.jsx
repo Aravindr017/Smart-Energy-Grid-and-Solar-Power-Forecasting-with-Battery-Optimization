@@ -67,7 +67,7 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 flex flex-col bg-navy-900 text-slate-200 transition-all duration-300 ease-in-out ${
+        className={`fixed top-0 bottom-0 left-0 z-50 flex flex-col overflow-hidden bg-navy-900 text-slate-200 transition-all duration-300 ease-in-out ${
           mobileOpen ? 'translate-x-0 w-72' : '-translate-x-full lg:translate-x-0'
         } ${collapsed ? 'lg:w-20' : 'lg:w-72'}`}
       >
@@ -136,7 +136,7 @@ export default function Sidebar({
           </div>
         )}
 
-        <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-4" aria-label="Main">
+        <nav className="flex-1 min-h-0 overflow-hidden px-3 py-4 space-y-4" aria-label="Main">
           {groups.map((group) => (
             <div key={group.label}>
               {expanded && (
@@ -169,6 +169,13 @@ export default function Sidebar({
           ))}
         </nav>
 
+        <div className={`shrink-0 border-t border-white/10 flex justify-center items-center ${expanded ? 'px-3 py-4' : 'px-1 py-3'}`}>
+          <img
+            src="/solaris-logo.png"
+            alt="SOLARIS"
+            className={`object-contain ${expanded ? 'w-56 h-40' : 'w-16 h-16'}`}
+          />
+        </div>
       </aside>
     </>
   );

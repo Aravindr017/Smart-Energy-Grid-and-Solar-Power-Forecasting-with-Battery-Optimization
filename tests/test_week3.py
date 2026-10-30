@@ -28,6 +28,7 @@ from src.api.server import (
     run_optimization,
     get_dataset_sample,
     get_duck_curve,
+    get_tariff_configuration,
     OptimizationRequest,
     ROOT_DIR,
 )
@@ -56,6 +57,8 @@ class DirectAPIClient:
 
         if path == "/api/status":
             return DirectTestResponse(200, get_status())
+        elif path == "/api/tariff-config":
+            return DirectTestResponse(200, get_tariff_configuration())
         elif path == "/api/plants":
             return DirectTestResponse(200, get_plants())
         elif path == "/api/weather/live":
@@ -110,6 +113,19 @@ def test_api_status(client):
     assert data["milestone"] == "Week 3 MVP"
     assert 1 in data["plants_available"]
     assert 2 in data["plants_available"]
+
+
+def test_api_tariff_configuration(client):
+    data = client.get("/api/tariff-config").json()
+    assert data["currency_code"] == "INR"
+    assert data["currency_symbol"] == "₹"
+    assert data["tariff_rates"] == {
+        "off_peak_rate": 5.30,
+        "normal_rate": 6.70,
+        "peak_rate": 7.30,
+        "export_feedin_rate": 0.0,
+    }
+    assert data["tariff_hours"]["peak"] == [6, 7, 8, 9, 18, 19, 20, 21]
 
 
 def test_api_plants(client):
@@ -178,10 +194,6 @@ def test_api_optimization(client):
         "max_inverter_power_mw": 5.0,
         "round_trip_efficiency_pct": 90.25,
         "initial_soc_pct": 20.0,
-        "off_peak_rate": 0.05,
-        "normal_rate": 0.10,
-        "peak_rate": 0.25,
-        "export_feedin_rate": 0.04
     }
     res = client.post("/api/optimize", json=payload)
     assert res.status_code == 200
@@ -191,9 +203,18 @@ def test_api_optimization(client):
     assert "schedule" in data
     assert "financials" in data
     assert "soc_gauge" in data
+    assert data["currency_code"] == "INR"
+    assert data["tariff_assumptions"]["off_peak_rate_inr_per_kwh"] == 5.30
+    assert data["tariff_assumptions"]["normal_rate_inr_per_kwh"] == 6.70
+    assert data["tariff_assumptions"]["peak_rate_inr_per_kwh"] == 7.30
+    assert data["tariff_assumptions"]["disclaimer"].startswith("Financial results are estimates")
 
     # Financial validation
     assert data["financials"]["daily_savings"] > 0
+    assert data["financials"]["daily_savings"] == pytest.approx(
+        data["kpis"]["cost_without_bess"] - data["kpis"]["cost_with_bess"],
+        abs=0.01,
+    )
     assert data["financials"]["annual_savings_projected"] > 0
     assert data["financials"]["simple_payback_years"] > 0
 
@@ -207,9 +228,16 @@ def test_api_optimization(client):
     # 24-hour schedule validation
     schedule = data["schedule"]
     assert len(schedule) == 24
-    for row in schedule:
+    for step, row in enumerate(schedule):
+        assert row["step"] == step
         assert 0 <= row["battery_soc_pct"] <= 100
         assert "tariff_tier" in row
+        expected_rate = {
+            "Off-Peak": 5.30,
+            "Normal": 6.70,
+            "Peak": 7.30,
+        }[row["tariff_tier"]]
+        assert row["tariff_rate"] == expected_rate
 
 
 def test_api_optimization_flat_tariff_idle(client):

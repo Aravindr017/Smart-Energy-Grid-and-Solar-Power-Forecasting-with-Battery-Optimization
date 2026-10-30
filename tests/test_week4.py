@@ -33,6 +33,7 @@ from src.analysis.carbon_accounting import (
     run_carbon_scenario_analysis,
 )
 from src.visualization.executive_report import generate_executive_pdf
+from src.optimization.battery_lp import TOUTariff
 from src.api.server import (
     get_weather_stress,
     get_carbon_accounting,
@@ -214,6 +215,7 @@ def test_weather_events_apply_only_for_their_defined_periods():
 
 def test_weather_stress_tariff_matches_inr_matrix():
     tariff = create_weather_stress_tariff()
+    assert tariff == TOUTariff()
     timestamps = pd.date_range("2020-05-15 00:00:00", periods=24, freq="h")
     import_rates, _ = tariff.get_rates_for_series(timestamps)
     expected_rates = np.array([

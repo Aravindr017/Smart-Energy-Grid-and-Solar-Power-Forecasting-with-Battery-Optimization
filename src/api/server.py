@@ -24,6 +24,17 @@ from src.data.loader import load_processed_handoff
 from src.data.weather_live import fetch_live_openmeteo_forecast
 from src.models.forecasting import generate_24h_ahead_solar_forecast
 from src.optimization.battery_lp import BatterySpecs, TOUTariff, BatteryOptimizerLP
+from src.optimization.tariff_config import (
+    BATTERY_DEGRADATION_COST_INR_PER_KWH,
+    BATTERY_INSTALLED_COST_INR_PER_KWH,
+    CURRENCY_CODE,
+    CURRENCY_SYMBOL,
+    EXPORT_FEEDIN_RATE_INR_PER_KWH,
+    NORMAL_RATE_INR_PER_KWH,
+    OFF_PEAK_RATE_INR_PER_KWH,
+    PEAK_RATE_INR_PER_KWH,
+    get_tariff_config,
+)
 from src.analysis.weather_stress_test import (
     PLANT_RATED_CAPACITY_MW,
     SCENARIOS,
@@ -78,12 +89,12 @@ class OptimizationRequest(BaseModel):
     max_inverter_power_mw: float = Field(5.0, ge=0.2, le=25.0, description="Inverter rating in MW")
     round_trip_efficiency_pct: float = Field(90.25, ge=60.0, le=99.0, description="Round-trip efficiency %")
     initial_soc_pct: float = Field(20.0, ge=10.0, le=80.0, description="Initial State-of-Charge %")
-    off_peak_rate: float = Field(0.05, ge=0.01, le=1.0, description="Off-peak tariff ($/kWh)")
-    normal_rate: float = Field(0.10, ge=0.01, le=1.0, description="Normal shoulder tariff ($/kWh)")
-    peak_rate: float = Field(0.25, ge=0.01, le=2.0, description="Evening peak tariff ($/kWh)")
-    export_feedin_rate: float = Field(0.04, ge=0.0, le=0.5, description="Export feed-in tariff ($/kWh)")
-    degradation_cost_per_kwh: float = Field(0.005, ge=0.0, le=0.05, description="Battery degradation wear ($/kWh)")
-    installed_cost_per_kwh: float = Field(250.0, ge=50.0, le=800.0, description="Estimated battery CAPEX ($/kWh)")
+    off_peak_rate: float = Field(OFF_PEAK_RATE_INR_PER_KWH, ge=0.0, le=100.0, description="Simulated off-peak tariff (INR/kWh)")
+    normal_rate: float = Field(NORMAL_RATE_INR_PER_KWH, ge=0.0, le=100.0, description="Simulated normal tariff (INR/kWh)")
+    peak_rate: float = Field(PEAK_RATE_INR_PER_KWH, ge=0.0, le=100.0, description="Simulated peak tariff (INR/kWh)")
+    export_feedin_rate: float = Field(EXPORT_FEEDIN_RATE_INR_PER_KWH, ge=0.0, le=50.0, description="Assumed solar export feed-in tariff (INR/kWh)")
+    degradation_cost_per_kwh: float = Field(BATTERY_DEGRADATION_COST_INR_PER_KWH, ge=0.0, le=100.0, description="Estimated battery degradation wear (INR/kWh)")
+    installed_cost_per_kwh: float = Field(BATTERY_INSTALLED_COST_INR_PER_KWH, ge=100.0, le=100000.0, description="Estimated battery installation cost (INR/kWh)")
     use_forecast: bool = Field(True, description="Whether to optimize on upcoming 24-hour live weather forecast (True) or historical baseline slice (False)")
 
 
@@ -100,6 +111,12 @@ def get_status():
         "milestone": "Week 3 MVP",
         "plants_available": [1, 2]
     }
+
+
+@app.get("/api/tariff-config")
+def get_tariff_configuration():
+    """Return the shared simulated INR tariffs and associated cost assumptions."""
+    return get_tariff_config()
 
 
 @app.get("/api/plants")
@@ -400,14 +417,33 @@ def run_optimization(req: OptimizationRequest):
     # Hourly schedule records
     schedule_rows = []
     for idx, row in sched_df.iterrows():
-        hour_int = int(row["step"])
-        tier = "Peak" if hour_int in tariff.peak_hours else ("Off-Peak" if hour_int in tariff.off_peak_hours else "Normal")
-        t_obj = timestamps[idx] if idx < len(timestamps) else None
-        t_label = t_obj.strftime("%H:%M") if t_obj is not None else f"{hour_int:02d}:00"
-        t_iso = t_obj.strftime("%Y-%m-%d %H:%M") if t_obj is not None else ""
+        # "step" is only the row's position in the 24-hour optimization horizon.
+        # Tariff periods must be classified using the actual clock hour from
+        # the corresponding timestamp, otherwise a forecast starting at (for
+        # example) 08:00 will incorrectly label step 0 as 00:00.
+        step = int(row["step"])
+        t_obj = timestamps[idx] if timestamps is not None and idx < len(timestamps) else None
+
+        if t_obj is not None:
+            t_obj = pd.Timestamp(t_obj)
+            clock_hour = t_obj.hour
+            t_label = t_obj.strftime("%H:%M")
+            t_iso = t_obj.strftime("%Y-%m-%d %H:%M")
+        else:
+            # Fallback for schedules without supplied timestamps. The optimizer
+            # uses a repeating 24-hour tariff in this case.
+            clock_hour = step % 24
+            t_label = f"{clock_hour:02d}:00"
+            t_iso = ""
+
+        tier = (
+            "Peak" if clock_hour in tariff.peak_hours
+            else "Off-Peak" if clock_hour in tariff.off_peak_hours
+            else "Normal"
+        )
         schedule_rows.append({
             "hour": t_label,
-            "step": hour_int,
+            "step": step,
             "timestamp": t_iso,
             "tariff_rate": round(float(row["import_tariff"]), 3),
             "tariff_tier": tier,
@@ -429,6 +465,15 @@ def run_optimization(req: OptimizationRequest):
     return {
         "kpis": kpis,
         "schedule": schedule_rows,
+        "currency_code": CURRENCY_CODE,
+        "currency_symbol": CURRENCY_SYMBOL,
+        "tariff_assumptions": {
+            "off_peak_rate_inr_per_kwh": tariff.off_peak_rate,
+            "normal_rate_inr_per_kwh": tariff.normal_rate,
+            "peak_rate_inr_per_kwh": tariff.peak_rate,
+            "export_feedin_rate_inr_per_kwh": tariff.export_feedin_rate,
+            "disclaimer": "Financial results are estimates based on simulated tariff assumptions, not actual utility bills or guaranteed savings.",
+        },
         "data_source": data_source_description,
         "is_future_forecast": is_future,
         "demand_assumption": "Facility baseline load demand is a calibrated synthetic scenario scaled to plant capacity; actual utility meter telemetry is unavailable.",
