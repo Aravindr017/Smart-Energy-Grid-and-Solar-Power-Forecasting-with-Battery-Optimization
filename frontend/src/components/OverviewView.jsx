@@ -19,7 +19,7 @@ import EmptyState from './ui/EmptyState';
 import ErrorState from './ui/ErrorState';
 import LegendItem from './ui/LegendItem';
 import StatusBadge from './ui/StatusBadge';
-import { COLORS, tooltipStyle, axisProps, formatNumber, formatMoney } from './ui/chartTheme';
+import { COLORS, tooltipStyle, axisProps, formatNumber, formatINR } from './ui/chartTheme';
 
 export default function OverviewView({
   data,
@@ -70,7 +70,7 @@ export default function OverviewView({
       <PageHeader
         eyebrow="What you are looking at"
         title={plantInfo?.name || 'Solar plant overview'}
-        description="Measured generation, plant capacity factor, average power, and estimated savings from the current optimization run."
+        description="Measured generation, plant capacity factor, average power, and estimated savings based on simulated INR tariff assumptions."
         actions={
           <FilterBar
             label="Time resolution"
@@ -119,9 +119,9 @@ export default function OverviewView({
           badge={{ label: 'Measured', tone: 'measured' }}
         />
         <MetricCard
-          label="Estimated cost savings"
-          value={optKpis.net_arbitrage_savings != null ? `$${formatMoney(optKpis.net_arbitrage_savings)}` : '—'}
-          subtitle="Net 24-hour arbitrage after degradation"
+          label="Estimated savings"
+          value={formatINR(optKpis.net_arbitrage_savings)}
+          subtitle="Estimated net 24-hour savings after battery wear"
           icon={DollarSign}
           tone="emerald"
           badge={{ label: 'Estimated', tone: 'estimated' }}

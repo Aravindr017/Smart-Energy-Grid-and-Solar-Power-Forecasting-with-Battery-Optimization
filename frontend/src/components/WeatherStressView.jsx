@@ -119,7 +119,7 @@ export default function WeatherStressView({ plantId = 1 }) {
     <div className="page-stack">
       <PageHeader
         title="Weather and extreme-weather scenarios"
-        description="Select a plant, then a scenario. Results below compare weather stress cases with the normal baseline from the existing stress suite."
+        description="Select a plant and weather scenario. Battery savings are estimates based on simulated INR tariff assumptions, not actual bills or guaranteed savings."
         actions={
           <SecondaryButton onClick={fetchStressData}>
             <RefreshCw className="w-4 h-4" />
@@ -127,16 +127,6 @@ export default function WeatherStressView({ plantId = 1 }) {
           </SecondaryButton>
         }
       />
-
-      <ol className="grid grid-cols-1 sm:grid-cols-5 gap-2 text-xs text-slate-600">
-        {['Select the plant in the sidebar', 'Review the available period', 'Choose a scenario', 'Refresh if needed', 'Compare results'].map(
-          (step, i) => (
-            <li key={step} className="rounded-xl bg-white border border-slate-200 px-3 py-2">
-              <span className="font-semibold text-emerald-700">{i + 1}.</span> {step}
-            </li>
-          )
-        )}
-      </ol>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {scenariosMeta.map((sc) => {
@@ -173,7 +163,7 @@ export default function WeatherStressView({ plantId = 1 }) {
           tone="amber"
         />
         <MetricCard
-          label="Estimated 24-hour battery savings"
+          label="Estimated 24-hour savings"
           value={currentSummary.net_arbitrage_savings != null ? `₹${formatNumber(currentSummary.net_arbitrage_savings, 0)}` : '—'}
           subtitle={`Throughput ${formatNumber(currentSummary.battery_throughput_mwh, 2)} MWh`}
           tone="emerald"
@@ -226,7 +216,7 @@ export default function WeatherStressView({ plantId = 1 }) {
                 <th className="py-3 px-4">Peak (7-day kW)</th>
                 <th className="py-3 px-4">Ridge RMSE (7-day kW)</th>
                 <th className="py-3 px-4">LightGBM RMSE (7-day kW)</th>
-                <th className="py-3 px-4">Net savings (24h ₹)</th>
+                <th className="py-3 px-4">Estimated savings (24h ₹)</th>
                 <th className="py-3 px-4">Grid dependence (24h)</th>
                 <th className="py-3 px-4">Autonomy (24h)</th>
               </tr>

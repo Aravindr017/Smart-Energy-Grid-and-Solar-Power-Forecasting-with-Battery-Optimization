@@ -20,6 +20,13 @@ from src.data.loader import load_processed_handoff
 from src.data.weather_live import fetch_live_openmeteo_forecast
 from src.models.forecasting import generate_24h_ahead_solar_forecast
 from src.optimization.battery_lp import BatterySpecs, TOUTariff, BatteryOptimizerLP
+from src.optimization.tariff_config import (
+    BATTERY_DEGRADATION_COST_INR_PER_KWH,
+    EXPORT_FEEDIN_RATE_INR_PER_KWH,
+    NORMAL_RATE_INR_PER_KWH,
+    OFF_PEAK_RATE_INR_PER_KWH,
+    PEAK_RATE_INR_PER_KWH,
+)
 from src.analysis.weather_stress_test import SCENARIOS, run_full_weather_stress_suite
 from src.analysis.carbon_accounting import (
     GRID_EMISSION_PROVENANCE,
@@ -584,7 +591,7 @@ if df_raw_loaded is not None:
         )
         st.info(
             "📌 **Assumptions & Disclaimers:** Baseline facility demand is a calibrated synthetic scenario scaled to plant capacity (actual utility telemetry unavailable). "
-            "TOU rates are representative benchmark assumptions ($/kWh or INR ₹ equivalent scenario), not actual plant billing records."
+            "All financial results are estimated savings based on simulated INR tariff assumptions, not actual plant billing records."
         )
 
         # Dispatch Solar Profile Selection
@@ -642,13 +649,13 @@ if df_raw_loaded is not None:
         st.markdown("##### Time-of-Use (TOU) Tariff Schedule")
         tcol1, tcol2, tcol3, tcol4 = st.columns(4)
         with tcol1:
-            off_peak_price = st.number_input("Off-Peak Rate ($/kWh)", min_value=0.01, max_value=0.50, value=0.05, step=0.01)
+            off_peak_price = st.number_input("Off-Peak Rate (₹/kWh)", min_value=0.0, max_value=100.0, value=OFF_PEAK_RATE_INR_PER_KWH, step=0.10)
         with tcol2:
-            normal_price = st.number_input("Normal / Shoulder Rate ($/kWh)", min_value=0.01, max_value=0.50, value=0.10, step=0.01)
+            normal_price = st.number_input("Normal / Shoulder Rate (₹/kWh)", min_value=0.0, max_value=100.0, value=NORMAL_RATE_INR_PER_KWH, step=0.10)
         with tcol3:
-            peak_price = st.number_input("Evening Peak Rate (17:00-21:00) ($/kWh)", min_value=0.05, max_value=1.00, value=0.25, step=0.02)
+            peak_price = st.number_input("Peak Rate (06:00-10:00, 18:00-22:00) (₹/kWh)", min_value=0.0, max_value=100.0, value=PEAK_RATE_INR_PER_KWH, step=0.10)
         with tcol4:
-            export_rate = st.number_input("Grid Solar Export Feed-In ($/kWh)", min_value=0.00, max_value=0.30, value=0.04, step=0.01)
+            export_rate = st.number_input("Solar Export Feed-In (₹/kWh)", min_value=0.0, max_value=50.0, value=EXPORT_FEEDIN_RATE_INR_PER_KWH, step=0.10)
 
         if day_slice_solar is not None:
             # Setup optimizer
@@ -661,7 +668,7 @@ if df_raw_loaded is not None:
                 soc_min=0.10,
                 soc_max=0.90,
                 soc_initial=initial_soc_pct / 100.0,
-                degradation_cost_per_kwh=0.005,
+                degradation_cost_per_kwh=BATTERY_DEGRADATION_COST_INR_PER_KWH,
             )
             b_tariff = TOUTariff(
                 off_peak_rate=off_peak_price,
@@ -685,11 +692,11 @@ if df_raw_loaded is not None:
             st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
             kcol1, kcol2, kcol3, kcol4 = st.columns(4)
             with kcol1:
-                st.metric("Net Arbitrage Savings", f"${kpis['net_arbitrage_savings']:,.2f}", delta=f"{kpis['savings_percentage']:.1f}% reduction")
+                st.metric("Estimated Savings", f"₹{kpis['net_arbitrage_savings']:,.2f}", delta=f"{kpis['savings_percentage']:.1f}% reduction")
             with kcol2:
-                st.metric("Cost Without BESS", f"${kpis['cost_without_bess']:,.2f}")
+                st.metric("Estimated Cost Without BESS", f"₹{kpis['cost_without_bess']:,.2f}")
             with kcol3:
-                st.metric("Cost With BESS", f"${kpis['cost_with_bess']:,.2f}")
+                st.metric("Estimated Cost With BESS", f"₹{kpis['cost_with_bess']:,.2f}")
             with kcol4:
                 st.metric("Solar Self-Consumption", f"{kpis['solar_self_consumption_with_bess_pct']:.1f}%", delta=f"+{kpis['solar_self_consumption_with_bess_pct'] - kpis['solar_self_consumption_without_bess_pct']:.1f}%")
 
@@ -858,7 +865,7 @@ if df_raw_loaded is not None:
             with s_col3:
                 st.metric("LightGBM Daylight RMSE", f"{selected_row['lgb_daylight_rmse_kw']:.1f} kW")
             with s_col4:
-                st.metric("Net Battery Arbitrage", f"₹{selected_row['net_arbitrage_savings']:,.0f}")
+                st.metric("Estimated Savings", f"₹{selected_row['net_arbitrage_savings']:,.0f}")
 
             # Plotly Scenario Comparison Bar Chart
             fig_stress = go.Figure()
@@ -871,7 +878,7 @@ if df_raw_loaded is not None:
             fig_stress.add_trace(go.Bar(
                 x=df_stress_summary["scenario_label"],
                 y=df_stress_summary["net_arbitrage_savings"] / 1000.0,
-                name="Net Arbitrage (₹k)",
+                name="Estimated Savings (Simulated Tariffs, ₹k)",
                 marker_color="#10b981"
             ))
             fig_stress.update_layout(
@@ -905,10 +912,12 @@ if df_raw_loaded is not None:
         )
 
         st.success(
-            f"**Regulatory Provenance:** {GRID_EMISSION_PROVENANCE['source']} "
-            f"({GRID_EMISSION_PROVENANCE['version']}) — Default National Weighted Average: "
-            f"**{GRID_EMISSION_PROVENANCE['national_weighted_average_factor_kg_per_kwh']} kg CO2e/kWh** "
-            f"(Thermal Marginal: {GRID_EMISSION_PROVENANCE['thermal_marginal_factor_kg_per_kwh']} kg CO2e/kWh)."
+            f"**Regulatory Provenance:** {GRID_EMISSION_PROVENANCE['source_organization']} — "
+            f"{GRID_EMISSION_PROVENANCE['source_document']} "
+            f"({GRID_EMISSION_PROVENANCE['publication_year']}). Default National Weighted Average: "
+            f"**{GRID_EMISSION_PROVENANCE['default_emission_factor_kg_per_kwh']} kg CO2e/kWh** "
+            f"(Thermal Marginal: "
+            f"{GRID_EMISSION_PROVENANCE['marginal_emission_factor_kg_per_kwh']} kg CO2e/kWh)."
         )
 
         carbon_summary_csv = reports_dir / "week4_carbon_summary.csv"

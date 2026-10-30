@@ -52,6 +52,8 @@ export default function App() {
   const [loadingForecast, setLoadingForecast] = useState(true);
   const [loadingOpt, setLoadingOpt] = useState(true);
   const [overviewError, setOverviewError] = useState(null);
+  const [optError, setOptError] = useState(null);
+  const [tariffConfigReady, setTariffConfigReady] = useState(false);
 
   const [params, setParams] = useState({
     plant_id: 1,
@@ -59,12 +61,6 @@ export default function App() {
     max_inverter_power_mw: 5.0,
     round_trip_efficiency_pct: 90.25,
     initial_soc_pct: 20.0,
-    off_peak_rate: 0.05,
-    normal_rate: 0.1,
-    peak_rate: 0.25,
-    export_feedin_rate: 0.04,
-    degradation_cost_per_kwh: 0.005,
-    installed_cost_per_kwh: 250.0,
   });
 
   useEffect(() => {
@@ -86,6 +82,42 @@ export default function App() {
   useEffect(() => {
     setParams((prev) => ({ ...prev, plant_id: plantId }));
   }, [plantId]);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/tariff-config')
+      .then(async (res) => {
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) {
+          throw new Error(payload?.detail || `HTTP ${res.status}`);
+        }
+        if (!payload?.tariff_rates || !payload?.financial_assumptions) {
+          throw new Error('The API did not return tariff defaults.');
+        }
+        return payload;
+      })
+      .then((config) => {
+        if (!active) return;
+        setParams((prev) => ({
+          ...prev,
+          ...config.tariff_rates,
+          ...config.financial_assumptions,
+        }));
+        setTariffConfigReady(true);
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error('Failed to load simulated INR tariff settings:', err);
+        setOptError(err.message === 'Failed to fetch'
+          ? 'Cannot reach the SOLARIS API to load INR tariff assumptions.'
+          : err.message);
+        setLoadingOpt(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const loadOverview = useCallback(() => {
     setLoadingOverview(true);
@@ -139,26 +171,42 @@ export default function App() {
   }, [loadForecast]);
 
   const runOptimization = useCallback(() => {
+    if (!tariffConfigReady) return;
     setLoadingOpt(true);
+    setOptError(null);
     fetch('/api/optimize', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
     })
-      .then((res) => res.json())
+      .then(async (res) => {
+        const payload = await res.json().catch(() => null);
+        if (!res.ok) {
+          const detail = payload?.detail || `HTTP ${res.status}`;
+          throw new Error(typeof detail === 'string' ? detail : 'Optimization request failed');
+        }
+        if (!payload?.kpis || !Array.isArray(payload?.schedule) || !payload?.financials) {
+          throw new Error('The optimization service returned an incomplete result.');
+        }
+        return payload;
+      })
       .then((data) => {
         setOptData(data);
         setLoadingOpt(false);
       })
       .catch((err) => {
         console.error('Failed to run optimization:', err);
+        setOptData(null);
+        setOptError(err.message === 'Failed to fetch'
+          ? 'Cannot reach the SOLARIS API. Start the backend on port 8000, then try again.'
+          : err.message);
         setLoadingOpt(false);
       });
-  }, [params]);
+  }, [params, tariffConfigReady]);
 
   useEffect(() => {
-    runOptimization();
-  }, [runOptimization]);
+    if (tariffConfigReady) runOptimization();
+  }, [runOptimization, tariffConfigReady]);
 
   const handleRefresh = () => {
     setIsRefreshing(true);
@@ -236,6 +284,7 @@ export default function App() {
                 setParams={setParams}
                 onRunOptimization={runOptimization}
                 loading={loadingOpt}
+                error={optError}
               />
             )}
 

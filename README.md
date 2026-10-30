@@ -306,10 +306,11 @@ df_hourly = load_processed_handoff(plant_id=1, freq="hourly")
 - **Calibrated Synthetic Scenario:** The grid demand curve used in the Duck Curve explorer and battery arbitrage dispatch is a calibrated diurnal simulation scaled to plant capacity. It is explicitly labeled across all dashboards and API responses as a `Simulated Grid Demand Scenario`. Net load is calculated strictly as $\text{Net Load} = \text{Demand} - \text{Solar Generation}$.
 
 ### Currency & Tariff Assumptions
-- **Currency:** Financial arbitrage calculations and web controls are denominated in USD ($) by default (with an Indian Rupee ₹ matrix preserved in `data/processed/Week2_TOU_Tariff_Cost_Matrix_Plant1_Plant2_2020.csv`).
-- **TOU Assumptions:** Rates represent assumed benchmark commercial/industrial Time-of-Use tariffs (e.g. Peak: \$0.25/kWh from 17:00–21:00, Off-peak: \$0.05/kWh, Normal: \$0.10/kWh, Export: \$0.04/kWh), not actual plant billing records.
-- **Weather Scenario Exception:** Weather-stress battery estimates use the INR matrix rates (Off-peak ₹5.30 from 22:00–05:00, Normal ₹6.70 from 10:00–17:00, Peak ₹7.30 from 06:00–09:00 and 18:00–21:00 per kWh), 95% one-way charge and discharge efficiency, ₹0.50/kWh throughput degradation, and zero export credit because the matrix defines no export rate. Demand is modeled from the normal-scenario solar profile and held constant across weather cases. These are scenario estimates, not actual bills.
-- **Annualized Savings Disclaimer:** Annual savings figures are scenario-based projections calculated as $\text{Daily Net Savings} \times 365$; they represent 365-day cycling extrapolations rather than audited 12-month utility bill records.
+- **Currency:** Battery optimization, weather scenarios, dashboards, charts, API results, and executive PDFs use Indian Rupees (₹ / INR).
+- **Central tariff assumptions:** `src/optimization/tariff_config.py` defines the default simulated rates: off-peak ₹5.30/kWh (22:00–06:00), normal ₹6.70/kWh (10:00–18:00), peak ₹7.30/kWh (06:00–10:00 and 18:00–22:00), and zero export credit. The React dashboard reads these settings from `/api/tariff-config`; Streamlit and report generation use the same Python configuration.
+- **Other financial assumptions:** Battery degradation wear is estimated at ₹0.50/kWh throughput and illustrative installed cost at ₹15,000/kWh.
+- **Estimated savings disclaimer:** All financial results are estimates based on simulated tariff assumptions, not actual plant billing records, utility bills, or guaranteed savings. Users may adjust rates in the dashboards.
+- **Annualized savings:** Annual savings are scenario-based projections calculated as estimated daily net savings × 365; they represent a 365-day cycling extrapolation rather than audited 12-month utility bill records.
 - **Negative Arbitrage Handling:** When battery degradation wear and round-trip efficiency losses exceed the tariff spread, the LP optimizer stays idle or reports negative arbitrage rather than forcing artificial positive savings.
 
 ### Known Environment Constraints
@@ -352,10 +353,11 @@ Implemented in [`src/optimization/battery_lp.py`](src/optimization/battery_lp.py
   4. **Terminal SoC:** $E_T \ge E_0$ (ensures zero depletion free-riding across days)
 
 **24-Hour Benchmark Result (Plant 1 - 10 MWh / 5 MW BESS):**
-- **Unmanaged Electricity Cost:** $6,346.40
-- **Optimized Electricity Cost (With BESS):** $4,650.94
-- **Net TOU Arbitrage Savings:** **$1,695.47 (26.7% cost reduction)**
-- **Solar Self-Consumption:** Increased from **42.1%** to **48.5%**
+- **Estimated unmanaged electricity cost:** ₹518,759.10
+- **Estimated optimized electricity cost (with BESS):** ₹469,653.05
+- **Estimated savings:** **₹49,106.05 (9.47% cost reduction)**
+- **Solar self-consumption:** Increased from **48.95%** to **55.17%**
+- These results use the simulated INR tariffs above; they are estimates, not actual bills or guaranteed savings.
 
 ---
 

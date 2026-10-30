@@ -42,10 +42,34 @@ from reportlab.platypus import (
 )
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.pdfgen import canvas
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 from src.data.loader import load_processed_handoff
 from src.features.engineering import create_feature_pipeline
 from src.optimization.battery_lp import BatteryOptimizerLP, BatterySpecs, TOUTariff
+from src.optimization.tariff_config import (
+    BATTERY_DEGRADATION_COST_INR_PER_KWH,
+    BATTERY_INSTALLED_COST_INR_PER_KWH,
+    CURRENCY_SYMBOL,
+    NORMAL_RATE_INR_PER_KWH,
+    OFF_PEAK_RATE_INR_PER_KWH,
+    PEAK_RATE_INR_PER_KWH,
+)
+
+
+def _register_unicode_fonts() -> None:
+    """Register a bundled Unicode font so the rupee symbol renders in PDFs."""
+    fonts_dir = Path(matplotlib.get_data_path()) / "fonts" / "ttf"
+    pdfmetrics.registerFont(TTFont("SolarisSans", str(fonts_dir / "DejaVuSans.ttf")))
+    pdfmetrics.registerFont(TTFont("SolarisSans-Bold", str(fonts_dir / "DejaVuSans-Bold.ttf")))
+    pdfmetrics.registerFontFamily(
+        "SolarisSans",
+        normal="SolarisSans",
+        bold="SolarisSans-Bold",
+        italic="SolarisSans",
+        boldItalic="SolarisSans-Bold",
+    )
 
 
 class NumberedCanvas(canvas.Canvas):
@@ -95,6 +119,7 @@ class NumberedCanvas(canvas.Canvas):
 
 def _get_styles() -> Dict[str, ParagraphStyle]:
     """Builds a cohesive typography hierarchy for ReportLab."""
+    _register_unicode_fonts()
     base = getSampleStyleSheet()
 
     navy = colors.HexColor("#1E3A8A")
@@ -105,7 +130,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "DocTitle": ParagraphStyle(
             "DocTitle",
             parent=base["Normal"],
-            fontName="Helvetica-Bold",
+            fontName="SolarisSans-Bold",
             fontSize=22,
             leading=26,
             textColor=navy,
@@ -114,7 +139,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "DocSubtitle": ParagraphStyle(
             "DocSubtitle",
             parent=base["Normal"],
-            fontName="Helvetica",
+            fontName="SolarisSans",
             fontSize=11,
             leading=15,
             textColor=muted,
@@ -123,7 +148,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "SectionHeading": ParagraphStyle(
             "SectionHeading",
             parent=base["Normal"],
-            fontName="Helvetica-Bold",
+            fontName="SolarisSans-Bold",
             fontSize=13,
             leading=17,
             textColor=navy,
@@ -133,7 +158,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "SubSectionHeading": ParagraphStyle(
             "SubSectionHeading",
             parent=base["Normal"],
-            fontName="Helvetica-Bold",
+            fontName="SolarisSans-Bold",
             fontSize=10,
             leading=14,
             textColor=dark_slate,
@@ -143,7 +168,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "Body": ParagraphStyle(
             "Body",
             parent=base["Normal"],
-            fontName="Helvetica",
+            fontName="SolarisSans",
             fontSize=8.5,
             leading=12,
             textColor=dark_slate,
@@ -152,7 +177,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "BodyBold": ParagraphStyle(
             "BodyBold",
             parent=base["Normal"],
-            fontName="Helvetica-Bold",
+            fontName="SolarisSans-Bold",
             fontSize=8.5,
             leading=12,
             textColor=dark_slate,
@@ -160,7 +185,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "Disclaimer": ParagraphStyle(
             "Disclaimer",
             parent=base["Normal"],
-            fontName="Helvetica-Oblique",
+            fontName="SolarisSans",
             fontSize=7.5,
             leading=10.5,
             textColor=colors.HexColor("#475569"),
@@ -168,7 +193,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "TableHeader": ParagraphStyle(
             "TableHeader",
             parent=base["Normal"],
-            fontName="Helvetica-Bold",
+            fontName="SolarisSans-Bold",
             fontSize=8,
             leading=10,
             textColor=colors.white,
@@ -177,7 +202,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "TableCell": ParagraphStyle(
             "TableCell",
             parent=base["Normal"],
-            fontName="Helvetica",
+            fontName="SolarisSans",
             fontSize=7.5,
             leading=9.5,
             textColor=dark_slate,
@@ -186,7 +211,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "TableCellCenter": ParagraphStyle(
             "TableCellCenter",
             parent=base["Normal"],
-            fontName="Helvetica",
+            fontName="SolarisSans",
             fontSize=7.5,
             leading=9.5,
             textColor=dark_slate,
@@ -195,7 +220,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "KpiLabel": ParagraphStyle(
             "KpiLabel",
             parent=base["Normal"],
-            fontName="Helvetica-Bold",
+            fontName="SolarisSans-Bold",
             fontSize=7.5,
             leading=9,
             textColor=colors.HexColor("#1E3A8A"),
@@ -204,7 +229,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "KpiValue": ParagraphStyle(
             "KpiValue",
             parent=base["Normal"],
-            fontName="Helvetica-Bold",
+            fontName="SolarisSans-Bold",
             fontSize=13,
             leading=15,
             textColor=colors.HexColor("#0F172A"),
@@ -213,7 +238,7 @@ def _get_styles() -> Dict[str, ParagraphStyle]:
         "KpiSub": ParagraphStyle(
             "KpiSub",
             parent=base["Normal"],
-            fontName="Helvetica",
+            fontName="SolarisSans",
             fontSize=6.5,
             leading=8,
             textColor=muted,
@@ -325,9 +350,9 @@ def generate_executive_pdf(
         soc_min=0.10,
         soc_max=0.90,
         soc_initial=0.20,
-        degradation_cost_per_kwh=0.50,
+        degradation_cost_per_kwh=BATTERY_DEGRADATION_COST_INR_PER_KWH,
     )
-    tariff = TOUTariff(off_peak_rate=3.50, normal_rate=6.00, peak_rate=9.50, export_feedin_rate=2.50)
+    tariff = TOUTariff()
     optimizer = BatteryOptimizerLP(specs=bess_specs, tariff=tariff)
     lp_res = optimizer.optimize_dispatch(
         solar_kw=df_day["ac_power"].values,
@@ -366,7 +391,7 @@ def generate_executive_pdf(
     kpi1 = _build_kpi_card("TOTAL GENERATION", f"{total_gen_mwh:,.1f}", "MWh (34 Days)", styles, 84)
     kpi2 = _build_kpi_card("PEAK GENERATION", f"{peak_mw:.2f}", "MW AC Power", styles, 84)
     kpi3 = _build_kpi_card("FORECAST ACCURACY", f"{lgb_mape:.1f}%", "Daylight MAPE (LGBM)", styles, 84)
-    kpi4 = _build_kpi_card("DAILY ARBITRAGE", f"INR {daily_arbitrage_inr:,.0f}", "Net Daily Benefit", styles, 84)
+    kpi4 = _build_kpi_card("EST. DAILY SAVINGS", f"{CURRENCY_SYMBOL}{daily_arbitrage_inr:,.0f}", "Simulated tariff estimate", styles, 84)
     kpi5 = _build_kpi_card("AVOIDED CO2", f"{daily_avoided_co2:.1f} T", "Tonnes/Day (CEA v19)", styles, 84)
     kpi6 = _build_kpi_card("BESS CAPACITY", "2.0 MWh", "0.5 MW / 4h Duration", styles, 84)
 
@@ -395,7 +420,8 @@ def generate_executive_pdf(
         "• <b>Linear Programming Battery Arbitrage:</b> PuLP optimization of a 2.0 MWh / 0.5 MW BESS balancing Time-of-Use tariff spreads against "
         "cell degradation wear costs.<br/>"
         "• <b>Weather Stress Resilience & Carbon Accounting:</b> Multi-scenario extreme-weather stress testing and operational CO2 offset accounting "
-        "benchmarked against the Central Electricity Authority (CEA) Baseline Database Version 19.0."
+        "benchmarked against the Central Electricity Authority (CEA) Baseline Database Version 19.0.<br/>"
+        "<b>Estimated financial results:</b> Battery savings use simulated INR tariffs and are estimates, not actual bills or guaranteed savings."
     )
     story.append(Paragraph(exec_text, styles["Body"]))
     story.append(Spacer(1, 8))
@@ -409,8 +435,12 @@ def generate_executive_pdf(
         "<b>0.716 kg CO2e/kWh</b> (thermal marginal: 0.820 kg CO2e/kWh). Calculations exclude cradle-to-grave module life-cycle assessment (LCA).<br/>"
         "<b>2. Substation Load Representation:</b> Feeder demand is generated via a normalized IEEE synthetic load curve scaled to solar plant capacity, "
         "reflecting dual-peak commercial/residential grid demand. It illustrates Duck Curve dynamics and does not represent measured SCADA substation telemetry.<br/>"
-        "<b>3. Economic Tariff Modeling:</b> Financial savings are modeled under benchmark multi-tier Time-of-Use (TOU) tariffs (Off-peak: ₹3.50, "
-        "Shoulder: ₹6.00, Peak: ₹9.50/kWh) with battery cell degradation wear cost modeled at ₹0.50/kWh throughput."
+        f"<b>3. Economic Tariff Modeling:</b> Financial results are estimated savings based on simulated Time-of-Use assumptions: "
+        f"off-peak {CURRENCY_SYMBOL}{OFF_PEAK_RATE_INR_PER_KWH:.2f}/kWh (22:00–06:00), "
+        f"normal {CURRENCY_SYMBOL}{NORMAL_RATE_INR_PER_KWH:.2f}/kWh (10:00–18:00), "
+        f"peak {CURRENCY_SYMBOL}{PEAK_RATE_INR_PER_KWH:.2f}/kWh (06:00–10:00 and 18:00–22:00). Battery wear is estimated at "
+        f"{CURRENCY_SYMBOL}{BATTERY_DEGRADATION_COST_INR_PER_KWH:.2f}/kWh throughput and installation at "
+        f"{CURRENCY_SYMBOL}{BATTERY_INSTALLED_COST_INR_PER_KWH:,.0f}/kWh. These are not actual utility tariffs or guaranteed savings."
     )
     disclaimer_table = Table([[Paragraph(disclaimer_text, styles["Disclaimer"])]], colWidths=[printable_width])
     disclaimer_table.setStyle(TableStyle([
@@ -655,10 +685,10 @@ def generate_executive_pdf(
          Paragraph("10.0% Min — 90.0% Max", styles["TableCellCenter"]),
          Paragraph("Preserves cell cathode longevity by avoiding deep depletion/overcharge.", styles["TableCell"])],
         [Paragraph("<b>Cell Degradation Wear Cost</b>", styles["TableCell"]),
-         Paragraph("₹0.50 / kWh throughput", styles["TableCellCenter"]),
-         Paragraph("Amortizes pack capital cost (₹15,000/kWh across 5,000 equivalent cycles).", styles["TableCell"])],
-        [Paragraph("<b>Net Arbitrage Realized</b>", styles["TableCell"]),
-         Paragraph(f"INR {daily_arbitrage_inr:,.0f} / day", styles["TableCellCenter"]),
+         Paragraph(f"{CURRENCY_SYMBOL}{BATTERY_DEGRADATION_COST_INR_PER_KWH:.2f} / kWh throughput", styles["TableCellCenter"]),
+         Paragraph(f"Illustrative pack capital cost ({CURRENCY_SYMBOL}{BATTERY_INSTALLED_COST_INR_PER_KWH:,.0f}/kWh across 5,000 equivalent cycles).", styles["TableCell"])],
+        [Paragraph("<b>Estimated Savings</b>", styles["TableCell"]),
+         Paragraph(f"{CURRENCY_SYMBOL}{daily_arbitrage_inr:,.0f} / day", styles["TableCellCenter"]),
          Paragraph(f"Throughput: {daily_throughput_kwh:,.0f} kWh/day; 100% mutual exclusivity verified.", styles["TableCell"])],
     ]
     t_bess = Table(bess_specs, colWidths=[145, 125, 262])
@@ -715,7 +745,7 @@ def generate_executive_pdf(
                 Paragraph(f"{r['total_solar_generation_mwh']:.1f}", styles["TableCellCenter"]),
                 Paragraph(f"{r['ridge_daylight_rmse_kw']:.1f}", styles["TableCellCenter"]),
                 Paragraph(f"{r['lgb_daylight_rmse_kw']:.1f}", styles["TableCellCenter"]),
-                Paragraph(f"₹{r['net_arbitrage_savings']:,.0f}", styles["TableCellCenter"]),
+                Paragraph(f"{CURRENCY_SYMBOL}{r['net_arbitrage_savings']:,.0f}", styles["TableCellCenter"]),
                 Paragraph(f"{r['grid_dependency_pct']:.1f}%", styles["TableCellCenter"]),
             ])
         t_stress = Table(stress_rows, colWidths=[150, 75, 75, 75, 85, 72])

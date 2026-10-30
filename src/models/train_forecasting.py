@@ -103,14 +103,8 @@ def main():
         soc_min=0.10,
         soc_max=0.90,
         soc_initial=0.20,
-        degradation_cost_per_kwh=0.005,
     )
-    tariff = TOUTariff(
-        off_peak_rate=0.05,
-        normal_rate=0.10,
-        peak_rate=0.25,
-        export_feedin_rate=0.04,
-    )
+    tariff = TOUTariff()
 
     optimizer = BatteryOptimizerLP(specs=specs, tariff=tariff)
     results = optimizer.optimize_dispatch(
@@ -124,9 +118,9 @@ def main():
     schedule_df = results["schedule_df"]
 
     print(f"Solver Status: {kpis['solver_status']}")
-    print(f"Electricity Cost Without BESS : ${kpis['cost_without_bess']:,.2f}")
-    print(f"Electricity Cost With BESS    : ${kpis['cost_with_bess']:,.2f}")
-    print(f"Net Arbitrage Savings         : ${kpis['net_arbitrage_savings']:,.2f} ({kpis['savings_percentage']:.1f}% reduction)")
+    print(f"Estimated Cost Without BESS   : ₹{kpis['cost_without_bess']:,.2f}")
+    print(f"Estimated Cost With BESS      : ₹{kpis['cost_with_bess']:,.2f}")
+    print(f"Estimated Savings (simulated tariffs): ₹{kpis['net_arbitrage_savings']:,.2f} ({kpis['savings_percentage']:.1f}% reduction)")
     print(f"Peak Grid Import Shaved       : {kpis['peak_demand_shaved_kw']:,.1f} kW ({kpis['peak_shaving_percentage']:.1f}% shaved)")
     print(f"Solar Self-Consumption        : {kpis['solar_self_consumption_without_bess_pct']:.1f}% -> {kpis['solar_self_consumption_with_bess_pct']:.1f}%")
     print(f"Equivalent Full Cycles Used   : {kpis['equivalent_full_cycles']} cycles")
