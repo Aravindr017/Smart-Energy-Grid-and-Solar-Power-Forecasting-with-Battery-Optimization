@@ -1,0 +1,7 @@
+grid_emission_factor_kg_per_kwh,grid_import_without_bess_kwh,grid_import_with_bess_kwh,displaced_grid_electricity_kwh,baseline_grid_emissions_kg,optimized_grid_emissions_kg,storage_avoided_co2_kg,storage_avoided_co2_tonnes,solar_self_consumed_avoided_co2_kg,solar_self_consumed_avoided_co2_tonnes,total_avoided_co2_kg,total_avoided_co2_tonnes,emissions_reduction_pct,annual_projected_avoided_co2_tonnes,total_solar_generation_mwh,scenario_name,scenario_label,is_synthetic
+0.716,64291.87,57012.38,7279.49,46032.98,40820.86,5212.11,5.2121,45299.81,45.2998,50511.92,50.5119,11.32,18436.85,130.32,normal,Normal Weather,False
+0.716,32145.95,24706.2,7439.75,23016.5,17689.64,5326.86,5.3269,25664.63,25.6646,30991.49,30.9915,23.14,11311.9,65.16,heavy_cloud,Cloudy Weather,True
+0.716,16072.97,8783.94,7289.03,11508.25,6289.3,5218.95,5.2189,15681.77,15.6818,20900.71,20.9007,45.35,7628.76,32.58,monsoon_prolonged,Heavy Rain / Monsoon,True
+0.716,32734.97,25294.7,7440.27,23438.24,18111.01,5327.23,5.3272,30648.27,30.6483,35975.51,35.9755,22.73,13131.06,73.42,sudden_drop,Sudden Solar Drop,True
+0.716,25716.76,18244.96,7471.8,18413.2,13063.39,5349.81,5.3498,21737.61,21.7376,27087.42,27.0874,29.05,9886.91,52.13,multi_day_low,Low Sunlight for Several Days,True
+0.716,40933.49,33904.38,7029.11,29308.38,24275.54,5032.84,5.0328,30884.86,30.8849,35917.7,35.9177,17.17,13109.96,82.75,recovery,Weather Improving,True

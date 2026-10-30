@@ -17,7 +17,16 @@ if str(root_dir) not in sys.path:
     sys.path.append(str(root_dir))
 
 from src.data.loader import load_processed_handoff
+from src.data.weather_live import fetch_live_openmeteo_forecast
+from src.models.forecasting import generate_24h_ahead_solar_forecast
 from src.optimization.battery_lp import BatterySpecs, TOUTariff, BatteryOptimizerLP
+from src.analysis.weather_stress_test import SCENARIOS, run_full_weather_stress_suite
+from src.analysis.carbon_accounting import (
+    GRID_EMISSION_PROVENANCE,
+    run_carbon_scenario_analysis,
+    calculate_carbon_offsets,
+)
+from src.visualization.executive_report import generate_executive_pdf
 
 st.set_page_config(
     page_title="Smart Solar Grid & Battery Optimization",
@@ -191,11 +200,13 @@ if df_raw_loaded is not None:
     st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
 
     # Navigation Tabs
-    tab1, tab2, tab3, tab4 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
         "Generation & Irradiance Analysis",
         "AI/ML Forecast Benchmarks (Week 1 & 2)",
         "🔋 Battery Arbitrage & LP Optimization (Week 2)",
-        "Dataset Inspection & Export"
+        "Dataset Inspection & Export",
+        "⛈️ Extreme-Weather Stress Testing (Week 4)",
+        "🌱 Carbon Accounting & Executive PDF (Week 4)"
     ])
 
     # -------------------------------------------------------------------------
@@ -374,6 +385,17 @@ if df_raw_loaded is not None:
                     hovertemplate="%{x}<br>LightGBM: %{y:,.1f} kW<extra></extra>"
                 ))
 
+            # XGBoost (Week 2 GBDT)
+            if "pred_xgboost" in df_preds.columns:
+                fig_pred.add_trace(go.Scatter(
+                    x=df_preds["time"],
+                    y=df_preds["pred_xgboost"],
+                    mode="lines",
+                    name="XGBoost (GBDT)",
+                    line=dict(color="#f97316", width=1.8),
+                    hovertemplate="%{x}<br>XGBoost: %{y:,.1f} kW<extra></extra>"
+                ))
+
             # Ridge Regression (Week 1 Baseline)
             if "pred_ridge" in df_preds.columns:
                 fig_pred.add_trace(go.Scatter(
@@ -456,6 +478,101 @@ if df_raw_loaded is not None:
                 )
                 st.plotly_chart(fig_imp, use_container_width=True)
 
+        # ---------------------------------------------------------------------
+        # Live Open-Meteo Weather & Genuine 24-Hour Solar Forecast
+        # ---------------------------------------------------------------------
+        st.markdown("---")
+        st.markdown("#### 🛰️ Live Open-Meteo Weather & Genuine 24-Hour Solar Forecast")
+        st.caption(
+            "Real-time meteorological telemetry from Open-Meteo Weather API for configured plant coordinates. "
+            "Exogenous weather variables drive genuine upcoming 24-hour predictions across LightGBM, XGBoost, and Prophet."
+        )
+
+        try:
+            live_w = fetch_live_openmeteo_forecast(plant_id=plant_id)
+            cond = live_w.get("current_conditions", {})
+            w_source = live_w.get("data_source", "Open-Meteo")
+            is_live = live_w.get("is_live", False)
+            status_badge = "🟢 Live API Telemetry" if is_live else "🟡 Historical Fallback"
+
+            wcol1, wcol2, wcol3, wcol4 = st.columns(4)
+            with wcol1:
+                st.metric("Weather Feed", status_badge, help=w_source)
+            with wcol2:
+                st.metric("Ambient Temp", f"{cond.get('temperature_c', 0.0):.1f} °C", help=f"Recorded: {cond.get('time')}")
+            with wcol3:
+                st.metric("Solar GHI", f"{cond.get('ghi_wm2', 0.0):.1f} W/m²")
+            with wcol4:
+                st.metric("Cloud Cover", f"{cond.get('cloud_cover_pct', 0.0):.0f}%", help=f"Wind: {cond.get('wind_speed_kmh', 0.0):.1f} km/h")
+
+            live_fc = generate_24h_ahead_solar_forecast(plant_id=plant_id, horizon_hours=24)
+            tl = live_fc.get("timeline", [])
+            if tl:
+                df_tl = pd.DataFrame(tl)
+                df_tl["time_dt"] = pd.to_datetime(df_tl["timestamp"])
+
+                fig_future = go.Figure()
+                # 90% Uncertainty Bound Envelope
+                fig_future.add_trace(go.Scatter(
+                    x=df_tl["time_dt"],
+                    y=df_tl["upper_bound_kw"],
+                    mode="lines",
+                    line=dict(width=0),
+                    showlegend=False,
+                    hoverinfo="skip"
+                ))
+                fig_future.add_trace(go.Scatter(
+                    x=df_tl["time_dt"],
+                    y=df_tl["lower_bound_kw"],
+                    mode="lines",
+                    line=dict(width=0),
+                    fill="tonexty",
+                    fillcolor="rgba(16, 185, 129, 0.15)",
+                    name="90% Confidence Interval",
+                    hoverinfo="skip"
+                ))
+                # Primary LightGBM Forecast
+                fig_future.add_trace(go.Scatter(
+                    x=df_tl["time_dt"],
+                    y=df_tl["lightgbm_kw"],
+                    mode="lines+markers",
+                    name="LightGBM (GBDT)",
+                    line=dict(color="#10b981", width=2.5),
+                    marker=dict(size=5),
+                    hovertemplate="%{x}<br>LightGBM: %{y:,.1f} kW<extra></extra>"
+                ))
+                # XGBoost
+                fig_future.add_trace(go.Scatter(
+                    x=df_tl["time_dt"],
+                    y=df_tl["xgboost_kw"],
+                    mode="lines",
+                    name="XGBoost (GBDT)",
+                    line=dict(color="#f97316", width=2.0, dash="dash"),
+                    hovertemplate="%{x}<br>XGBoost: %{y:,.1f} kW<extra></extra>"
+                ))
+                # Prophet
+                fig_future.add_trace(go.Scatter(
+                    x=df_tl["time_dt"],
+                    y=df_tl["prophet_kw"],
+                    mode="lines",
+                    name="Facebook Prophet",
+                    line=dict(color="#8b5cf6", width=1.5, dash="dot"),
+                    hovertemplate="%{x}<br>Prophet: %{y:,.1f} kW<extra></extra>"
+                ))
+                fig_future.update_layout(
+                    title=f"Upcoming 24-Hour Solar Generation Forecast ({live_fc.get('forecast_start')} to {live_fc.get('forecast_end')})",
+                    xaxis=dict(title="Future Timestamp (Asia/Kolkata)", type="date"),
+                    yaxis=dict(title="Forecast AC Power (kW)", gridcolor="#f1f5f9"),
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    template="plotly_white",
+                    height=360,
+                    margin=dict(l=40, r=40, t=40, b=40),
+                )
+                st.plotly_chart(fig_future, use_container_width=True)
+                st.info(f"💡 Forecast horizon totals: **{live_fc['kpis']['total_predicted_energy_mwh']:.2f} MWh** estimated generation with **{live_fc['kpis']['peak_predicted_kw']:,.1f} kW** peak output across **{live_fc['kpis']['daylight_hours']} daylight hours**.")
+        except Exception as e:
+            st.warning(f"Could not load live weather forecast: {e}")
+
     # -------------------------------------------------------------------------
     # TAB 3: PuLP Battery Arbitrage & Optimization (Week 2 Hero Tab)
     # -------------------------------------------------------------------------
@@ -465,6 +582,47 @@ if df_raw_loaded is not None:
             "Solves a 24-Hour Linear Programming (LP) optimization problem using PuLP. "
             "Charges battery during low-tariff solar overgeneration hours and discharges during evening peak hours."
         )
+        st.info(
+            "📌 **Assumptions & Disclaimers:** Baseline facility demand is a calibrated synthetic scenario scaled to plant capacity (actual utility telemetry unavailable). "
+            "TOU rates are representative benchmark assumptions ($/kWh or INR ₹ equivalent scenario), not actual plant billing records."
+        )
+
+        # Dispatch Solar Profile Selection
+        st.markdown("##### ☀️ Solar Dispatch Source")
+        dispatch_mode = st.radio(
+            "Select Generation Input Profile for Optimization",
+            options=["Upcoming 24-Hour Solar Forecast (Live Open-Meteo)", "Historical Baseline Day (Last 24h Slice)"],
+            horizontal=True,
+            help="Choose whether to optimize day-ahead battery dispatch on live upcoming solar forecast or historical recorded generation."
+        )
+
+        use_future = "Upcoming 24-Hour" in dispatch_mode
+        day_slice_solar = None
+        day_slice_time = None
+        data_source_label = ""
+
+        if use_future:
+            try:
+                fc_data = generate_24h_ahead_solar_forecast(plant_id=plant_id, horizon_hours=24)
+                tl = fc_data.get("timeline", [])
+                if len(tl) == 24:
+                    day_slice_solar = np.array([float(s["selected_solar_kw"]) for s in tl], dtype=float)
+                    day_slice_time = pd.to_datetime([s["timestamp"] for s in tl])
+                    data_source_label = f"Upcoming 24-Hour Forecast ({fc_data.get('data_source', 'Live Open-Meteo')})"
+            except Exception as e:
+                st.warning(f"Failed to generate future forecast ({e}), falling back to historical baseline.")
+                use_future = False
+
+        if day_slice_solar is None:
+            df_hourly_all = get_data(plant_id, "hourly")
+            if df_hourly_all is not None:
+                day_slice = df_hourly_all.tail(24).copy().reset_index(drop=True)
+                day_slice_solar = day_slice["ac_power"].values
+                day_slice_time = pd.to_datetime(day_slice["time"])
+                data_source_label = "Historical Hourly Generation (24-Hour Baseline Slice)"
+
+        if day_slice_solar is not None:
+            st.caption(f"📅 Active dispatch horizon: **{data_source_label}** | Duration: 24 Hours")
 
         # Battery Configuration Controls
         bcol1, bcol2, bcol3, bcol4 = st.columns(4)
@@ -492,11 +650,7 @@ if df_raw_loaded is not None:
         with tcol4:
             export_rate = st.number_input("Grid Solar Export Feed-In ($/kWh)", min_value=0.00, max_value=0.30, value=0.04, step=0.01)
 
-        # Load 24h slice from hourly data for optimization
-        df_hourly_all = get_data(plant_id, "hourly")
-        if df_hourly_all is not None:
-            day_slice = df_hourly_all.tail(24).copy().reset_index(drop=True)
-            
+        if day_slice_solar is not None:
             # Setup optimizer
             b_specs = BatterySpecs(
                 capacity_kwh=batt_cap_kwh,
@@ -518,11 +672,12 @@ if df_raw_loaded is not None:
 
             b_optimizer = BatteryOptimizerLP(specs=b_specs, tariff=b_tariff)
             opt_res = b_optimizer.optimize_dispatch(
-                solar_kw=day_slice["ac_power"].values,
-                timestamps=day_slice["time"],
+                solar_kw=day_slice_solar,
+                timestamps=day_slice_time,
                 dt_hours=1.0,
                 enforce_terminal_soc=True,
             )
+
             kpis = opt_res["kpi_summary"]
             sched_df = opt_res["schedule_df"]
 
@@ -553,12 +708,12 @@ if df_raw_loaded is not None:
                 fillcolor="rgba(245, 158, 11, 0.15)"
             ))
 
-            # Baseline load
+            # Baseline load (Simulated)
             fig_duck.add_trace(go.Scatter(
                 x=sched_df["step"],
                 y=sched_df["load_demand_kw"] / 1000.0,
                 mode="lines",
-                name="Baseline Demand (MW)",
+                name="Baseline Demand [Simulated] (MW)",
                 line=dict(color="#64748b", width=2, dash="dash")
             ))
 
@@ -664,5 +819,160 @@ if df_raw_loaded is not None:
             file_name=f"plant_{plant_id}_{granularity}_data.csv",
             mime="text/csv"
         )
+
+    # -------------------------------------------------------------------------
+    # TAB 5: Extreme-Weather Stress Testing (Week 4)
+    # -------------------------------------------------------------------------
+    with tab5:
+        st.markdown("#### ⛈️ Extreme-Weather Stress Testing & Battery Resilience")
+        st.caption(
+            "Simulates calibrated meteorological disruptions (heavy cloud cover, prolonged monsoon low, "
+            "sudden midday drop, multi-day deficit, post-storm recovery) to benchmark forecast error spikes "
+            "and PuLP battery storage resilience."
+        )
+
+        reports_dir = root_dir / "reports"
+        stress_summary_csv = reports_dir / "week4_weather_stress_summary.csv"
+        if not stress_summary_csv.exists():
+            with st.spinner("Executing Extreme-Weather Stress Testing Suite..."):
+                run_full_weather_stress_suite(plant_id=plant_id)
+
+        if stress_summary_csv.exists():
+            df_stress_summary = pd.read_csv(stress_summary_csv)
+
+            scenario_names = df_stress_summary["scenario_name"].tolist()
+            scenario_labels = df_stress_summary["scenario_label"].tolist()
+            selected_label = st.selectbox("Select Weather Stress Scenario", options=scenario_labels)
+            selected_row = df_stress_summary[df_stress_summary["scenario_label"] == selected_label].iloc[0]
+
+            # Scenario description
+            sc_meta = SCENARIOS.get(selected_row["scenario_name"], {})
+            st.info(f"**Scenario Profile:** {sc_meta.get('description', '')}")
+
+            # Metric Cards
+            s_col1, s_col2, s_col3, s_col4 = st.columns(4)
+            with s_col1:
+                st.metric("Total Solar Generation", f"{selected_row['total_solar_generation_mwh']:.1f} MWh")
+            with s_col2:
+                st.metric("Ridge Daylight RMSE", f"{selected_row['ridge_daylight_rmse_kw']:.1f} kW")
+            with s_col3:
+                st.metric("LightGBM Daylight RMSE", f"{selected_row['lgb_daylight_rmse_kw']:.1f} kW")
+            with s_col4:
+                st.metric("Net Battery Arbitrage", f"₹{selected_row['net_arbitrage_savings']:,.0f}")
+
+            # Plotly Scenario Comparison Bar Chart
+            fig_stress = go.Figure()
+            fig_stress.add_trace(go.Bar(
+                x=df_stress_summary["scenario_label"],
+                y=df_stress_summary["total_solar_generation_mwh"],
+                name="Solar Generation (MWh)",
+                marker_color="#f59e0b"
+            ))
+            fig_stress.add_trace(go.Bar(
+                x=df_stress_summary["scenario_label"],
+                y=df_stress_summary["net_arbitrage_savings"] / 1000.0,
+                name="Net Arbitrage (₹k)",
+                marker_color="#10b981"
+            ))
+            fig_stress.update_layout(
+                title="Cross-Scenario Generation & Battery Economic Resilience",
+                barmode="group",
+                template="plotly_white",
+                height=350,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+            )
+            st.plotly_chart(fig_stress, use_container_width=True)
+
+            # Scenario Matrix Table
+            st.markdown("##### Comprehensive Stress Matrix")
+            st.dataframe(df_stress_summary, use_container_width=True, hide_index=True)
+
+            st.download_button(
+                label="Download Weather Stress Summary CSV",
+                data=df_stress_summary.to_csv(index=False).encode("utf-8"),
+                file_name="week4_weather_stress_summary.csv",
+                mime="text/csv"
+            )
+
+    # -------------------------------------------------------------------------
+    # TAB 6: Carbon Accounting & Executive PDF (Week 4)
+    # -------------------------------------------------------------------------
+    with tab6:
+        st.markdown("#### 🌱 Carbon-Offset Accounting & Executive PDF Report")
+        st.caption(
+            "Calculates operational grid emissions avoided by solar generation and battery load shifting, "
+            "benchmarked against the Central Electricity Authority (CEA) Baseline Database Version 19.0."
+        )
+
+        st.success(
+            f"**Regulatory Provenance:** {GRID_EMISSION_PROVENANCE['source']} "
+            f"({GRID_EMISSION_PROVENANCE['version']}) — Default National Weighted Average: "
+            f"**{GRID_EMISSION_PROVENANCE['national_weighted_average_factor_kg_per_kwh']} kg CO2e/kWh** "
+            f"(Thermal Marginal: {GRID_EMISSION_PROVENANCE['thermal_marginal_factor_kg_per_kwh']} kg CO2e/kWh)."
+        )
+
+        carbon_summary_csv = reports_dir / "week4_carbon_summary.csv"
+        if not carbon_summary_csv.exists():
+            with st.spinner("Executing Carbon Accounting Suite..."):
+                run_carbon_scenario_analysis(plant_id=plant_id)
+
+        if carbon_summary_csv.exists():
+            df_carbon = pd.read_csv(carbon_summary_csv)
+
+            # Interactive emission factor slider
+            st.markdown("##### Interactive Grid Emission Factor Tuning")
+            user_ef = st.slider(
+                "Grid Emission Factor (kg CO2e / kWh)",
+                min_value=0.30,
+                max_value=1.20,
+                value=0.716,
+                step=0.005,
+                help="Adjust to simulate different grid generation mixes."
+            )
+
+            # Compute offsets dynamically
+            base_mwh = 50.0
+            daily_co2_tonnes = (base_mwh * 1000.0 * user_ef) / 1000.0
+            annual_co2_tonnes = daily_co2_tonnes * 365.0
+            lifetime_co2_tonnes = annual_co2_tonnes * 25.0
+
+            c_col1, c_col2, c_col3, c_col4 = st.columns(4)
+            with c_col1:
+                st.metric("Grid Emission Factor", f"{user_ef:.3f} kg/kWh")
+            with c_col2:
+                st.metric("Daily Avoided CO2", f"{daily_co2_tonnes:.1f} Tonnes")
+            with c_col3:
+                st.metric("Annual Avoided CO2", f"{annual_co2_tonnes:,.0f} Tonnes")
+            with c_col4:
+                st.metric("25-Yr Lifetime Abatement", f"{lifetime_co2_tonnes/1000.0:,.1f}k Tonnes")
+
+            st.markdown("##### Grid Intensity Sensitivity Matrix")
+            st.dataframe(df_carbon, use_container_width=True, hide_index=True)
+
+        st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+        st.markdown("##### 📄 Executive Technical PDF Report")
+        st.caption("Generates a publication-grade, 6-page comprehensive executive report using ReportLab.")
+
+        pdf_path = reports_dir / f"executive_report_plant{plant_id}.pdf"
+        col_gen, col_down = st.columns([1, 1])
+
+        with col_gen:
+            if st.button("Generate / Regenerate Executive PDF Report", type="primary"):
+                with st.spinner("Compiling 6-page executive report..."):
+                    pdf_path = generate_executive_pdf(plant_id=plant_id)
+                    st.success(f"Report compiled successfully! ({pdf_path.stat().st_size / 1024:.1f} KB)")
+
+        with col_down:
+            if pdf_path.exists():
+                with open(pdf_path, "rb") as f_pdf:
+                    st.download_button(
+                        label="📥 Download Executive Technical PDF",
+                        data=f_pdf.read(),
+                        file_name=f"Solar_Plant_{plant_id}_Executive_Report.pdf",
+                        mime="application/pdf"
+                    )
+            else:
+                st.info("Click 'Generate / Regenerate' to compile the PDF report.")
+
 else:
     st.error("Processed data file could not be found. Please ensure 'data/processed/' contains the required CSV files.")

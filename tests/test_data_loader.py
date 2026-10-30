@@ -26,7 +26,7 @@ def test_project_root_and_data_dirs():
     assert root.exists(), "Root directory must exist"
     assert raw_dir.exists(), "Raw data directory must exist"
     assert processed_dir.exists(), "Processed data directory must exist"
-    print("✔ Root and data directories verified.")
+    print("[OK] Root and data directories verified.")
 
 
 def test_raw_files_exist_and_load():
@@ -42,7 +42,7 @@ def test_raw_files_exist_and_load():
 
         df_om = load_raw_openmeteo(plant_id=pid)
         assert not df_om.empty, f"Plant {pid} Open-Meteo data is empty"
-    print("✔ Raw generation, weather, and Open-Meteo datasets loaded successfully.")
+    print("[OK] Raw generation, weather, and Open-Meteo datasets loaded successfully.")
 
 
 def test_processed_handoff_files_load():
@@ -57,7 +57,7 @@ def test_processed_handoff_files_load():
 
         df_inv_15m = load_processed_handoff(plant_id=pid, freq="15min_inverter")
         assert not df_inv_15m.empty, f"Plant {pid} 15min inverter handoff is empty"
-    print("✔ All processed handoff datasets (hourly, 15min-plant, 15min-inverter) loaded successfully.")
+    print("[OK] All processed handoff datasets (hourly, 15min-plant, 15min-inverter) loaded successfully.")
 
 
 if __name__ == "__main__":

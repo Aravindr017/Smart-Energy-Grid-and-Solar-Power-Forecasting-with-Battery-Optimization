@@ -11,7 +11,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel, Field
 import io
 
@@ -21,7 +21,26 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.append(str(ROOT_DIR))
 
 from src.data.loader import load_processed_handoff
+from src.data.weather_live import fetch_live_openmeteo_forecast
+from src.models.forecasting import generate_24h_ahead_solar_forecast
 from src.optimization.battery_lp import BatterySpecs, TOUTariff, BatteryOptimizerLP
+from src.analysis.weather_stress_test import (
+    PLANT_RATED_CAPACITY_MW,
+    SCENARIOS,
+    run_full_weather_stress_suite,
+)
+from src.analysis.carbon_accounting import (
+    GRID_EMISSION_PROVENANCE,
+    run_carbon_scenario_analysis,
+    calculate_carbon_offsets,
+)
+
+_WEATHER_STRESS_CACHE: Dict[int, Dict[str, Any]] = {}
+
+
+def generate_executive_pdf(*args, **kwargs):
+    from src.visualization.executive_report import generate_executive_pdf as _generate
+    return _generate(*args, **kwargs)
 
 app = FastAPI(
     title="Solar Grid Intelligence & BESS Optimization API",
@@ -65,6 +84,8 @@ class OptimizationRequest(BaseModel):
     export_feedin_rate: float = Field(0.04, ge=0.0, le=0.5, description="Export feed-in tariff ($/kWh)")
     degradation_cost_per_kwh: float = Field(0.005, ge=0.0, le=0.05, description="Battery degradation wear ($/kWh)")
     installed_cost_per_kwh: float = Field(250.0, ge=50.0, le=800.0, description="Estimated battery CAPEX ($/kWh)")
+    use_forecast: bool = Field(True, description="Whether to optimize on upcoming 24-hour live weather forecast (True) or historical baseline slice (False)")
+
 
 
 # -------------------------------------------------------------------------
@@ -109,6 +130,34 @@ def get_plants():
             "data_span_days": 34
         }
     ]
+
+
+@app.get("/api/weather/live")
+def get_live_weather(
+    plant_id: int = Query(1, ge=1, le=2, description="Plant ID (1 or 2)")
+):
+    """
+    Returns live Open-Meteo weather forecast and current meteorological conditions
+    for the plant's geographic coordinates, with caching and historical fallback.
+    """
+    try:
+        return fetch_live_openmeteo_forecast(plant_id=plant_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch live weather: {str(exc)}")
+
+
+@app.get("/api/forecast/live-24h")
+def get_live_24h_forecast(
+    plant_id: int = Query(1, ge=1, le=2, description="Plant ID (1 or 2)")
+):
+    """
+    Generates genuine operational 24-hour ahead solar power forecast using live
+    Open-Meteo weather forecast variables, solar geometry, and pre-trained GBDT/Prophet models.
+    """
+    try:
+        return generate_24h_ahead_solar_forecast(plant_id=plant_id, horizon_hours=24)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate 24h solar forecast: {str(exc)}")
 
 
 @app.get("/api/overview")
@@ -213,9 +262,9 @@ def get_forecast(
     daytime_mask = df_agg["actual_ac_power"] > 50.0
     daytime_std = float(residuals[daytime_mask].std()) if daytime_mask.sum() > 0 else 500.0
 
-    # Upper and lower bounds (1.645 * std for 90% confidence), clamped at 0
+    # Upper and lower bounds (1.645 * std for approximate 90% empirical coverage), clamped at 0
     df_agg["lower_bound"] = np.maximum(0.0, df_agg["pred_lightgbm"] - 1.645 * daytime_std)
-    df_agg["upper_bound"] = np.maximum(0.0, df_agg["pred_lightgbm"] + 1.645 * daytime_std)
+    df_agg["upper_bound"] = np.maximum(df_agg["lower_bound"], df_agg["pred_lightgbm"] + 1.645 * daytime_std)
     # Nighttime zero clamping
     night_mask = df_agg["pred_lightgbm"] < 10.0
     df_agg.loc[night_mask, "lower_bound"] = 0.0
@@ -230,6 +279,7 @@ def get_forecast(
             "time": row["time"].strftime("%m/%d %H:%M"),
             "actual": round(float(row.get("actual_ac_power", 0.0)), 1),
             "lightgbm": round(float(row.get("pred_lightgbm", 0.0)), 1),
+            "xgboost": round(float(row.get("pred_xgboost", row.get("pred_lightgbm", 0.0))), 1),
             "prophet": round(float(row.get("pred_prophet", 0.0)), 1),
             "ridge": round(float(row.get("pred_ridge", 0.0)), 1),
             "persistence": round(float(row.get("pred_persistence", 0.0)), 1),
@@ -248,11 +298,19 @@ def get_forecast(
                 "importance": int(row["importance"])
             })
 
+    # 4. Live 24-Hour Operational Forecast (Next 24h from Open-Meteo)
+    live_24h = None
+    try:
+        live_24h = generate_24h_ahead_solar_forecast(plant_id=plant_id, horizon_hours=24)
+    except Exception:
+        pass
+
     return {
         "plant_id": plant_id,
         "metrics": metrics_list,
         "predictions": predictions,
         "feature_importance": features,
+        "live_24h_forecast": live_24h,
         "bounds_info": {
             "confidence_level": "90%",
             "std_error_kw": round(daytime_std, 1),
@@ -267,15 +325,36 @@ def run_optimization(req: OptimizationRequest):
     Executes PuLP 24-Hour Linear Programming battery arbitrage and returns
     dispatch schedules, Duck Curve mitigation, State-of-Charge progression,
     and financial savings breakdown.
+    Can optimize on upcoming 24-hour solar forecast (req.use_forecast=True) or historical slice.
     """
-    # Load 24-hour test day from hourly plant dataset
-    try:
-        df_hourly = get_cached_dataset(req.plant_id, "hourly")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to load hourly data: {str(e)}")
+    solar_kw_array = None
+    timestamps = None
+    data_source_description = "Upcoming 24-Hour Solar Forecast (Live Open-Meteo)"
+    is_future = True
 
-    day_slice = df_hourly.tail(24).copy().reset_index(drop=True)
-    timestamps = pd.to_datetime(day_slice["time"])
+    if req.use_forecast:
+        try:
+            fc = generate_24h_ahead_solar_forecast(plant_id=req.plant_id, horizon_hours=24)
+            timeline = fc.get("timeline", [])
+            if len(timeline) == 24:
+                solar_kw_array = np.array([float(step["selected_solar_kw"]) for step in timeline], dtype=float)
+                timestamps = pd.to_datetime([step["timestamp"] for step in timeline])
+                is_future = True
+                data_source_description = f"Upcoming 24-Hour Solar Forecast ({fc.get('data_source', 'Live Open-Meteo')})"
+        except Exception:
+            solar_kw_array = None
+
+    if solar_kw_array is None:
+        try:
+            df_hourly = get_cached_dataset(req.plant_id, "hourly")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to load hourly data: {str(e)}")
+
+        day_slice = df_hourly.tail(24).copy().reset_index(drop=True)
+        solar_kw_array = day_slice["ac_power"].values
+        timestamps = pd.to_datetime(day_slice["time"])
+        is_future = False
+        data_source_description = "Historical Hourly Generation (24-Hour Baseline Slice)"
 
     # Configure Battery Specs
     one_way_eff = float(np.sqrt(req.round_trip_efficiency_pct / 100.0))
@@ -303,7 +382,7 @@ def run_optimization(req: OptimizationRequest):
 
     optimizer = BatteryOptimizerLP(specs=specs, tariff=tariff)
     opt_res = optimizer.optimize_dispatch(
-        solar_kw=day_slice["ac_power"].values,
+        solar_kw=solar_kw_array,
         timestamps=timestamps,
         dt_hours=1.0,
         enforce_terminal_soc=True,
@@ -323,9 +402,13 @@ def run_optimization(req: OptimizationRequest):
     for idx, row in sched_df.iterrows():
         hour_int = int(row["step"])
         tier = "Peak" if hour_int in tariff.peak_hours else ("Off-Peak" if hour_int in tariff.off_peak_hours else "Normal")
+        t_obj = timestamps[idx] if idx < len(timestamps) else None
+        t_label = t_obj.strftime("%H:%M") if t_obj is not None else f"{hour_int:02d}:00"
+        t_iso = t_obj.strftime("%Y-%m-%d %H:%M") if t_obj is not None else ""
         schedule_rows.append({
-            "hour": f"{hour_int:02d}:00",
+            "hour": t_label,
             "step": hour_int,
+            "timestamp": t_iso,
             "tariff_rate": round(float(row["import_tariff"]), 3),
             "tariff_tier": tier,
             "solar_mw": round(float(row["solar_generation_kw"]) / 1000.0, 2),
@@ -346,6 +429,9 @@ def run_optimization(req: OptimizationRequest):
     return {
         "kpis": kpis,
         "schedule": schedule_rows,
+        "data_source": data_source_description,
+        "is_future_forecast": is_future,
+        "demand_assumption": "Facility baseline load demand is a calibrated synthetic scenario scaled to plant capacity; actual utility meter telemetry is unavailable.",
         "financials": {
             "daily_savings": daily_savings,
             "annual_savings_projected": annual_savings,
@@ -366,6 +452,7 @@ def run_optimization(req: OptimizationRequest):
     }
 
 
+
 @app.get("/api/dataset")
 def get_dataset_sample(
     plant_id: int = Query(1, ge=1, le=2),
@@ -382,8 +469,225 @@ def get_dataset_sample(
     }
 
 
+@app.get("/api/duck-curve")
+def get_duck_curve(
+    date: Optional[str] = Query(None, description="Date filter YYYY-MM-DD"),
+    limit: int = Query(96, ge=24, le=672, description="Slice length in 15-minute intervals")
+):
+    """
+    Returns Duck Curve telemetry: simulated grid demand, solar generation,
+    and net load (demand - solar) at 15-minute resolution.
+    Explicitly identifies demand as synthetic simulation.
+    """
+    duck_file = ROOT_DIR / "data" / "processed" / "duck_curve_demo_15min.csv"
+    if not duck_file.exists():
+        raise HTTPException(status_code=404, detail="Duck Curve processed dataset not found.")
+
+    df_duck = pd.read_csv(duck_file)
+    df_duck["dt"] = pd.to_datetime(df_duck["timestamp"])
+    df_duck["date"] = df_duck["dt"].dt.strftime("%Y-%m-%d")
+
+    available_dates = sorted(df_duck["date"].unique().tolist())
+    if date and date in available_dates:
+        df_slice = df_duck[df_duck["date"] == date].copy().sort_values("dt")
+    else:
+        # Default to the first full 24h day or tail(limit)
+        df_slice = df_duck.head(limit).copy().sort_values("dt")
+
+    solar_mw = df_slice["total_solar_generation_kw"].values
+    demand_mw = df_slice["system_demand_synthetic_kw"].values
+    net_load_mw = df_slice["illustrative_net_load_kw"].values
+
+    peak_demand = float(np.max(demand_mw)) if len(demand_mw) > 0 else 0.0
+    min_net = float(np.min(net_load_mw)) if len(net_load_mw) > 0 else 0.0
+    max_solar = float(np.max(solar_mw)) if len(solar_mw) > 0 else 0.0
+    belly_drop = peak_demand - min_net
+
+    # Estimate evening ramp rate (max positive slope over 1 hour = 4 steps in evening 16:00-21:00)
+    hours = df_slice["dt"].dt.hour.values
+    evening_mask = (hours >= 16) & (hours <= 21)
+    if np.sum(evening_mask) >= 4:
+        ev_net = net_load_mw[evening_mask]
+        ramp_rates = [ev_net[i + 4] - ev_net[i] for i in range(len(ev_net) - 4)]
+        evening_ramp_mw_hr = float(max(ramp_rates)) if ramp_rates else 0.0
+    else:
+        evening_ramp_mw_hr = 0.0
+
+    timeseries = []
+    for _, row in df_slice.iterrows():
+        timeseries.append({
+            "timestamp": row["timestamp"],
+            "time_label": row["dt"].strftime("%H:%M"),
+            "date": row["date"],
+            "solar_generation_mw": round(float(row["total_solar_generation_kw"]), 2),
+            "grid_demand_mw": round(float(row["system_demand_synthetic_kw"]), 2),
+            "net_load_mw": round(float(row["illustrative_net_load_kw"]), 2),
+            "is_interpolated": bool(row.get("generation_interpolated", False))
+        })
+
+    return {
+        "data_source_label": "Simulated Grid Demand Scenario",
+        "is_synthetic_demand": True,
+        "disclaimer": "Grid demand values are calibrated synthetic simulation scenarios scaled to plant capacity; actual regional utility telemetry is unavailable.",
+        "selected_date": date or (df_slice["date"].iloc[0] if len(df_slice) > 0 else ""),
+        "available_dates": available_dates,
+        "total_records": len(timeseries),
+        "metrics": {
+            "peak_grid_demand_mw": round(peak_demand, 2),
+            "min_midday_net_load_mw": round(min_net, 2),
+            "max_midday_solar_mw": round(max_solar, 2),
+            "belly_depth_drop_mw": round(belly_drop, 2),
+            "evening_ramp_rate_mw_per_hour": round(evening_ramp_mw_hr, 2)
+        },
+        "timeseries": timeseries
+    }
+
+
+# -------------------------------------------------------------------------
+# Week 4 Deliverables: Weather Stress, Carbon Accounting & Executive Report
+# -------------------------------------------------------------------------
+@app.get("/api/weather-stress")
+def get_weather_stress(
+    plant_id: int = Query(1, ge=1, le=2, description="Plant ID (1 or 2)"),
+    scenario: Optional[str] = Query(None, description="Filter specific scenario")
+):
+    """
+    Returns extreme-weather stress testing results:
+    - Scenarios metadata & physical definitions
+    - Multi-scenario summary metrics (generation, forecast errors, battery resilience)
+    - Ridge vs LightGBM performance comparison under meteorological anomalies
+    """
+    if hasattr(plant_id, "default"):
+        plant_id = plant_id.default
+    if hasattr(scenario, "default"):
+        scenario = scenario.default
+
+    if plant_id not in _WEATHER_STRESS_CACHE:
+        _WEATHER_STRESS_CACHE[plant_id] = run_full_weather_stress_suite(
+            plant_id=plant_id,
+            save_artifacts=False,
+        )
+
+    result = _WEATHER_STRESS_CACHE[plant_id]
+    df_summary = result["summary_df"]
+    df_fc = result["forecast_df"]
+    df_batt = result["resilience_df"]
+
+    if scenario:
+        df_summary = df_summary[df_summary["scenario_name"] == scenario]
+        df_fc = df_fc[df_fc["scenario_name"] == scenario]
+        df_batt = df_batt[df_batt["scenario_name"] == scenario]
+
+    scenarios_meta = [
+        {"name": k, "label": v["label"], "description": v["description"], "is_synthetic": v["is_synthetic"]}
+        for k, v in SCENARIOS.items()
+    ]
+
+    return {
+        "plant_id": plant_id,
+        "rated_capacity_mw": PLANT_RATED_CAPACITY_MW[plant_id],
+        "scenarios_metadata": scenarios_meta,
+        "selected_scenario": scenario,
+        "summary": df_summary.to_dict(orient="records"),
+        "forecast_stress_metrics": df_fc.to_dict(orient="records"),
+        "battery_resilience": df_batt.to_dict(orient="records"),
+    }
+
+
+@app.get("/api/carbon")
+def get_carbon_accounting(
+    plant_id: int = Query(1, ge=1, le=2, description="Plant ID (1 or 2)"),
+    emission_factor: Optional[float] = Query(None, ge=0.1, le=2.0, description="Custom grid emission factor (kg CO2e/kWh)")
+):
+    """
+    Returns carbon-offset accounting telemetry and sensitivity analysis:
+    - Official Central Electricity Authority (CEA v19) baseline emission factor (0.716 kg CO2e/kWh)
+    - Grid intensity sensitivity comparison across 4 carbon regimes
+    - Weather stress scenario avoided emissions
+    - Custom user-specified emission factor recalculation
+    """
+    if hasattr(plant_id, "default"):
+        plant_id = plant_id.default
+    if hasattr(emission_factor, "default"):
+        emission_factor = emission_factor.default
+
+    carbon_results = run_carbon_scenario_analysis(plant_id=plant_id, save_artifacts=False)
+    df_summary = carbon_results["sensitivity_df"]
+    df_scenarios = carbon_results["weather_scenarios_df"]
+
+    custom_calc = None
+    if emission_factor is not None:
+        # Load sample battery dispatch to compute custom offset
+        reports_dir = ROOT_DIR / "reports"
+        sample_batt_csv = reports_dir / "week4_battery_resilience.csv"
+        if sample_batt_csv.exists():
+            df_b = pd.read_csv(sample_batt_csv)
+            # Find normal scenario or first row
+            norm = df_b[df_b["scenario_name"] == "normal"]
+            row = norm.iloc[0] if not norm.empty else df_b.iloc[0]
+            custom_calc = calculate_carbon_offsets(
+                grid_import_without_bess_kwh=float(row.get("grid_import_without_bess_mwh", 15.0) * 1000.0),
+                grid_import_with_bess_kwh=float(row.get("grid_import_with_bess_mwh", 13.0) * 1000.0),
+                solar_generation_kwh=float(row.get("total_solar_generation_mwh", 50.0) * 1000.0),
+                solar_exported_kwh=float(row.get("total_solar_generation_mwh", 50.0) * 1000.0 * 0.3),
+                grid_emission_factor=emission_factor,
+            )
+
+    return {
+        "plant_id": plant_id,
+        "provenance": GRID_EMISSION_PROVENANCE,
+        "default_factor_kg_per_kwh": 0.716,
+        "sensitivity_summary": df_summary.to_dict(orient="records"),
+        "weather_scenarios_carbon": df_scenarios.to_dict(orient="records"),
+        "custom_calculation": custom_calc,
+    }
+
+
+@app.post("/api/executive-report/generate")
+def generate_executive_report_endpoint(
+    plant_id: int = Query(1, ge=1, le=2, description="Plant ID (1 or 2)")
+):
+    """
+    Regenerates the dynamic multi-page executive technical PDF report
+    covering Weeks 1-4 deliverables.
+    """
+    if hasattr(plant_id, "default"):
+        plant_id = plant_id.default
+    try:
+        pdf_path = generate_executive_pdf(plant_id=plant_id)
+        return {
+            "status": "success",
+            "plant_id": plant_id,
+            "filename": pdf_path.name,
+            "size_kb": round(pdf_path.stat().st_size / 1024.0, 1),
+            "download_url": f"/api/executive-report/download?plant_id={plant_id}",
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate executive report: {str(exc)}")
+
+
+@app.get("/api/executive-report/download")
+def download_executive_report_endpoint(
+    plant_id: int = Query(1, ge=1, le=2, description="Plant ID (1 or 2)")
+):
+    """
+    Streams the publication-grade multi-page executive PDF report to the browser.
+    """
+    if hasattr(plant_id, "default"):
+        plant_id = plant_id.default
+    reports_dir = ROOT_DIR / "reports"
+    pdf_path = reports_dir / f"executive_report_plant{plant_id}.pdf"
+    if not pdf_path.exists():
+        pdf_path = generate_executive_pdf(plant_id=plant_id)
+
+    return FileResponse(
+        path=str(pdf_path),
+        media_type="application/pdf",
+        filename=f"Solar_Plant_{plant_id}_Executive_Technical_Report.pdf",
+    )
+
+
 # Mount production React build if dist exists
 dist_dir = ROOT_DIR / "frontend" / "dist"
 if dist_dir.exists():
     app.mount("/", StaticFiles(directory=str(dist_dir), html=True), name="frontend")
-

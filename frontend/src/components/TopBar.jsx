@@ -1,5 +1,40 @@
 import React from 'react';
-import { Menu, Sun, Activity, Zap, RefreshCw, Compass, ShieldCheck } from 'lucide-react';
+import { Menu, Moon, Sun, RefreshCw } from 'lucide-react';
+
+const TAB_COPY = {
+  overview: {
+    title: 'Executive overview',
+    subtitle: 'Plant generation, forecast, battery, and estimated savings at a glance',
+  },
+  forecast: {
+    title: 'Solar forecasting',
+    subtitle: 'Predicted generation compared with measured output',
+  },
+  battery: {
+    title: 'Battery optimization',
+    subtitle: 'Charge, discharge, and state of charge over the next day',
+  },
+  savings: {
+    title: 'Electricity Cost & Savings',
+    subtitle: 'Compare estimated electricity costs with and without a battery',
+  },
+  data: {
+    title: 'Duck curve & data',
+    subtitle: 'Solar versus the demand profile, plus plant telemetry records',
+  },
+  weather: {
+    title: 'Weather & extreme scenarios',
+    subtitle: 'How generation and battery results change under stress cases',
+  },
+  carbon: {
+    title: 'Carbon Emission Savings',
+    subtitle: 'Estimated CO₂ emissions avoided through solar and battery use',
+  },
+  report: {
+    title: 'Executive report',
+    subtitle: 'Generate and download a PDF summary of the current analysis',
+  },
+};
 
 export default function TopBar({
   activeTab,
@@ -7,65 +42,59 @@ export default function TopBar({
   onOpenMobileSidebar,
   onRefresh,
   isRefreshing,
+  isDarkTheme,
+  onToggleTheme,
 }) {
-  const tabTitles = {
-    overview: 'Facility Telemetry & PV Power Generation',
-    forecast: '24-Hour AI/ML Multi-Step Forecasting & Risk Bounds',
-    battery: 'BESS Arbitrage Schedule & State-of-Charge Dynamics',
-    savings: 'Time-of-Use (TOU) Tariff Arbitrage & Economic Calculator',
-    data: 'Processed Inverter & Weather Telemetry Dataset',
-  };
+  const copy = TAB_COPY[activeTab] || TAB_COPY.overview;
+  const plantName = plantInfo?.name?.split('(')[0].trim() || 'Solar facility';
 
   return (
-    <header className="sticky top-0 z-30 h-16 bg-white/90 backdrop-blur-md border-b border-slate-200/80 shadow-2xs">
-      <div className="h-full px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
-        {/* Left: Hamburger (mobile) & Breadcrumbs */}
-        <div className="flex items-center gap-3">
+    <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200">
+      <div className="px-4 sm:px-6 lg:px-8 py-3.5 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={onOpenMobileSidebar}
-            className="lg:hidden p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-orange-50 focus:outline-none"
+            className="lg:hidden p-2 rounded-lg text-slate-500 hover:text-slate-800 hover:bg-slate-100"
             aria-label="Open navigation menu"
           >
             <Menu className="w-5 h-5" />
           </button>
 
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-orange-600 uppercase tracking-wider">
-                {plantInfo?.name.split('(')[0].trim() || 'Solar Facility'}
-              </span>
-              <span className="text-slate-300">•</span>
-              <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60 hidden sm:inline-flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                Grid Synchronized
-              </span>
-            </div>
-            <h1 className="text-sm sm:text-base font-bold text-slate-900 tracking-tight">
-              {tabTitles[activeTab] || 'Solar Intelligence Platform'}
-            </h1>
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-emerald-700 truncate">{plantName}</p>
+            <h1 className="text-base sm:text-lg font-semibold text-slate-900 truncate">{copy.title}</h1>
+            <p className="hidden sm:block text-xs text-slate-500 truncate">{copy.subtitle}</p>
           </div>
         </div>
 
-        {/* Right: Plant Specs & Status */}
         <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-3 text-xs text-slate-500 bg-orange-50/50 px-3 py-1.5 rounded-lg border border-orange-100">
-            <span className="flex items-center gap-1 font-medium text-slate-700">
-              <Sun className="w-3.5 h-3.5 text-amber-500" />
-              {plantInfo?.rated_capacity_mw} MW Rated
+          <div className="hidden md:flex items-center gap-3 text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-xl">
+            <span className="inline-flex items-center gap-1 font-medium text-slate-700">
+              <Sun className="w-3.5 h-3.5 text-solar-500" />
+              {plantInfo?.rated_capacity_mw} MW
             </span>
             <span className="text-slate-300">|</span>
-            <span>{plantInfo?.elevation_m}m Elevation</span>
-            <span className="text-slate-300">|</span>
-            <span>22 Inverters</span>
+            <span>{plantInfo?.inverters_count || 22} inverters</span>
           </div>
+
+          <button
+            onClick={onToggleTheme}
+            className="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200"
+            title={`Switch to ${isDarkTheme ? 'light' : 'dark'} theme`}
+            aria-label={`Switch to ${isDarkTheme ? 'light' : 'dark'} theme`}
+            aria-pressed={isDarkTheme}
+          >
+            {isDarkTheme ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
 
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
-            className="p-2 rounded-lg text-slate-500 hover:text-orange-600 hover:bg-orange-50 border border-slate-200/70 transition-colors"
-            title="Refresh telemetry"
+            className="p-2 rounded-lg text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 border border-slate-200"
+            title="Refresh data"
+            aria-label="Refresh data"
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-orange-600' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin text-emerald-700' : ''}`} />
           </button>
         </div>
       </div>

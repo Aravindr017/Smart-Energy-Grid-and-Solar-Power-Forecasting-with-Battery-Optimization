@@ -1,20 +1,31 @@
 import React from 'react';
-import {
-  DollarSign,
-  TrendingUp,
-  Download,
-  Calendar,
-  PiggyBank,
-  Zap,
-  Clock,
-  ArrowUpRight,
-  ShieldAlert,
-} from 'lucide-react';
+import { Download, AlertTriangle, Info } from 'lucide-react';
+import PageHeader from './ui/PageHeader';
+import MetricCard from './ui/MetricCard';
+import LoadingState from './ui/LoadingState';
+import PrimaryButton from './ui/PrimaryButton';
+import SecondaryButton from './ui/SecondaryButton';
+import StatusBadge from './ui/StatusBadge';
+import { formatMoney } from './ui/chartTheme';
 
-export default function TariffSavingsView({ optData, params }) {
+export default function TariffSavingsView({
+  optData,
+  params,
+  setParams,
+  onRunOptimization,
+  loading,
+}) {
   const kpis = optData?.kpis || {};
   const financials = optData?.financials || {};
   const schedule = optData?.schedule || [];
+
+  const handleInputChange = (key, value) => {
+    if (setParams) setParams((prev) => ({ ...prev, [key]: Number(value) }));
+  };
+
+  const netSavings =
+    kpis.net_arbitrage_savings !== undefined ? kpis.net_arbitrage_savings : financials.daily_savings;
+  const isNegativeSavings = netSavings != null && netSavings < 0;
 
   const handleDownloadCsv = () => {
     if (!schedule.length) return;
@@ -46,210 +57,196 @@ export default function TariffSavingsView({ optData, params }) {
       r.battery_energy_mwh,
       r.battery_soc_pct,
     ]);
-
-    const csvContent =
-      'data:text/csv;charset=utf-8,' +
-      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
     const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
+    link.setAttribute('href', encodeURI(csvContent));
     link.setAttribute('download', 'bess_24h_optimal_dispatch_schedule.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
   };
 
+  if (loading && !optData) {
+    return <LoadingState label="Calculating electricity costs & savings…" />;
+  }
+
   return (
-    <div className="space-y-6">
-      {/* Header Strip */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-emerald-600" />
-              <h2 className="text-base font-semibold text-slate-900">
-                Net TOU Tariff Arbitrage & Economic Calculator
-              </h2>
-            </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Linear Programming cost minimization comparing unmanaged solar baseline vs. BESS time-shifting
-            </p>
-          </div>
-          <button
-            onClick={handleDownloadCsv}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 text-xs font-medium shadow-xs transition-colors"
-          >
-            <Download className="w-4 h-4 text-slate-500" />
-            Export Dispatch Schedule (CSV)
-          </button>
-        </div>
+    <div className="page-stack">
+      <PageHeader
+        title="Electricity Cost & Savings"
+        description="Compare estimated electricity costs over 24 hours with and without a battery. These are estimates, not your utility bill."
+        actions={
+          <SecondaryButton onClick={handleDownloadCsv} disabled={!schedule.length}>
+            <Download className="w-4 h-4" />
+            Download Schedule
+          </SecondaryButton>
+        }
+      />
+
+      <div className="flex items-start gap-2 rounded-xl bg-slate-50 px-4 py-3 text-xs text-slate-600">
+        <Info className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+        Electricity prices are example values for low-, normal-, and high-price hours. High-price hours are assumed to be 17:00–21:00.
       </div>
 
-      {/* Primary Financial Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-medium uppercase tracking-wider">Daily Net Savings</span>
-            <span className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-              +{kpis.savings_percentage?.toFixed(1)}% Cost Cut
-            </span>
+      {setParams && (
+        <section className="surface-card p-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+            <h3 className="text-sm font-semibold text-slate-900">Electricity Prices & Battery Storage</h3>
+            {onRunOptimization && (
+              <PrimaryButton onClick={onRunOptimization} disabled={loading}>
+                {loading ? 'Calculating…' : 'Calculate Savings'}
+              </PrimaryButton>
+            )}
           </div>
-          <div className="mt-2 text-3xl font-extrabold text-emerald-700">
-            ${(kpis.net_arbitrage_savings || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 text-sm">
+            {[
+              { key: 'peak_rate', label: 'High Electricity Price', format: (v) => `$${Number(v).toFixed(2)}/kWh`, min: 0.1, max: 0.8, step: 0.01 },
+              { key: 'normal_rate', label: 'Normal Electricity Price', format: (v) => `$${Number(v).toFixed(2)}/kWh`, min: 0.05, max: 0.4, step: 0.01 },
+              { key: 'off_peak_rate', label: 'Low Electricity Price', format: (v) => `$${Number(v).toFixed(2)}/kWh`, min: 0.01, max: 0.25, step: 0.01 },
+              { key: 'battery_capacity_mwh', label: 'Battery Storage Capacity', format: (v) => `${v} MWh`, min: 1, max: 30, step: 1 },
+            ].map((item) => (
+              <label key={item.key} className="block space-y-1">
+                <span className="flex justify-between font-medium text-slate-700">
+                  {item.label}
+                  <span className="text-slate-900">{item.format(params[item.key])}</span>
+                </span>
+                <input
+                  type="range"
+                  min={item.min}
+                  max={item.max}
+                  step={item.step}
+                  value={params[item.key]}
+                  onChange={(e) => handleInputChange(item.key, e.target.value)}
+                  className="range-control"
+                />
+              </label>
+            ))}
           </div>
-          <p className="mt-1 text-xs text-slate-500">Net TOU arbitrage gain per 24 hours</p>
-        </div>
+        </section>
+      )}
 
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-medium uppercase tracking-wider">Unmanaged Electricity Cost</span>
-            <span className="text-xs text-slate-400">Baseline</span>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">
-            ${(kpis.cost_without_bess || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <p className="mt-1 text-xs text-slate-500">Grid imports without battery storage</p>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-medium uppercase tracking-wider">Optimized Cost with BESS</span>
-            <span className="text-xs text-emerald-600 font-medium">Post-LP</span>
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">
-            ${(kpis.cost_with_bess || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </div>
-          <p className="mt-1 text-xs text-slate-500">Including degradation wear wear cost</p>
-        </div>
-
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-          <div className="flex items-center justify-between text-slate-500">
-            <span className="text-xs font-medium uppercase tracking-wider">Self-Consumption Gain</span>
-            <Zap className="w-4 h-4 text-amber-500" />
-          </div>
-          <div className="mt-2 text-2xl font-bold text-slate-900">
-            {kpis.solar_self_consumption_with_bess_pct?.toFixed(1)}%
-          </div>
-          <p className="mt-1 text-xs text-emerald-600 font-medium">
-            +{financials.solar_self_consumption_gain_pct}% from {kpis.solar_self_consumption_without_bess_pct?.toFixed(1)}% baseline
+      {isNegativeSavings && (
+        <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900">
+          <AlertTriangle className="w-5 h-5 text-red-600 shrink-0" />
+          <p>
+            Estimated savings are negative (${formatMoney(netSavings)}). The difference between high and low electricity prices does not cover energy losses and battery wear (${formatMoney(kpis.degradation_wear_cost)}).
           </p>
         </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <MetricCard
+          label="Cost without battery"
+          value={kpis.cost_without_bess != null ? `$${formatMoney(kpis.cost_without_bess)}` : '—'}
+          subtitle="Estimated electricity cost over 24 hours"
+          tone="orange"
+          badge={{ label: 'Estimated', tone: 'estimated' }}
+        />
+        <MetricCard
+          label="Cost with battery"
+          value={kpis.cost_with_bess != null ? `$${formatMoney(kpis.cost_with_bess)}` : '—'}
+          subtitle={`Includes $${formatMoney(kpis.degradation_wear_cost)} estimated battery wear`}
+          tone="navy"
+        />
+        <MetricCard
+          label="Estimated Savings"
+          value={netSavings != null ? `$${formatMoney(netSavings)}` : '—'}
+          subtitle={kpis.savings_percentage != null ? `${kpis.savings_percentage.toFixed(1)}% change in cost` : 'After battery wear'}
+          tone={isNegativeSavings ? 'red' : 'emerald'}
+        />
+        <MetricCard
+          label="Solar Power Used On Site"
+          value={kpis.solar_self_consumption_with_bess_pct != null ? `${kpis.solar_self_consumption_with_bess_pct.toFixed(1)}%` : '—'}
+          subtitle={`Compared with ${kpis.solar_self_consumption_without_bess_pct?.toFixed(1) ?? '—'}% without a battery`}
+          tone="amber"
+        />
       </div>
 
-      {/* Investment & Long-Term Financial ROI Projection */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-        <h3 className="text-sm font-semibold text-slate-900 mb-1">
-          BESS Capital Expenditure & Simple Payback Horizon
-        </h3>
-        <p className="text-xs text-slate-500 mb-4">
-          Annualized financial feasibility based on {params.battery_capacity_mwh} MWh nominal storage capacity
+      <section className="surface-card p-5">
+        <h3 className="text-sm font-semibold text-slate-900">Estimated Battery Payback</h3>
+        <p className="text-xs text-slate-500 mt-1 mb-4">
+          Yearly savings assume each day is similar to this estimate. Actual savings may differ.
         </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
-          <div className="p-4 rounded-xl bg-orange-50/50 border border-orange-100">
-            <span className="text-slate-500 block">Annualized Arbitrage Savings</span>
-            <span className="text-xl font-bold text-slate-900 mt-1 block">
-              ${(financials.annual_savings_projected || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </span>
-            <span className="text-[11px] text-slate-400 mt-0.5 block">Estimated 365-day cycling revenue</span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-slate-50 border border-slate-100">
-            <span className="text-slate-500 block">Estimated System CAPEX</span>
-            <span className="text-xl font-bold text-slate-900 mt-1 block">
-              ${(financials.estimated_capex || 0).toLocaleString()}
-            </span>
-            <span className="text-[11px] text-slate-400 mt-0.5 block">At $250 / kWh all-in installed cost</span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-emerald-50/60 border border-emerald-100">
-            <span className="text-emerald-800 font-medium block">Simple Amortization Payback</span>
-            <span className="text-xl font-bold text-emerald-800 mt-1 block">
-              {financials.simple_payback_years?.toFixed(1)} Years
-            </span>
-            <span className="text-[11px] text-emerald-600 mt-0.5 block">Break-even ROI without subsidies</span>
-          </div>
-        </div>
-      </div>
-
-      {/* 24-Hour Hour-by-Hour Dispatch Schedule Table */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-sm font-semibold text-slate-900">
-              Detailed 24-Hour Hour-by-Hour Optimal Dispatch Matrix
-            </h3>
-            <p className="text-xs text-slate-500">
-              Hour-by-hour power balance, battery charge/discharge dispatch, and grid import state
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs text-slate-500">Estimated yearly savings</p>
+            <p className="text-xl font-semibold mt-1">
+              {financials.annual_savings_projected != null
+                ? `$${Number(financials.annual_savings_projected).toLocaleString()}`
+                : '—'}
             </p>
           </div>
-          <span className="text-xs font-medium px-2.5 py-1 bg-slate-100 text-slate-600 rounded">
-            24 Hourly Steps
-          </span>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <p className="text-xs text-slate-500">Estimated battery installation cost</p>
+            <p className="text-xl font-semibold mt-1">
+              {financials.estimated_capex != null ? `$${Number(financials.estimated_capex).toLocaleString()}` : '—'}
+            </p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 p-4">
+            <p className="text-xs text-emerald-800">Estimated time to pay back</p>
+            <p className="text-xl font-semibold text-emerald-900 mt-1">
+              {netSavings > 0 && financials.simple_payback_years != null
+                ? `${Number(financials.simple_payback_years).toFixed(1)} years`
+                : 'Not applicable'}
+            </p>
+          </div>
         </div>
+      </section>
 
+      <section className="surface-card p-5">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Hourly Electricity & Battery Schedule</h3>
+            <p className="text-xs text-slate-500">See solar power, electricity use, battery charging, and grid electricity for each hour.</p>
+          </div>
+          <StatusBadge tone="slate">{schedule.length} hours</StatusBadge>
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 text-slate-600 font-semibold border-y border-slate-200">
+            <thead className="text-slate-500 border-b border-slate-200">
               <tr>
                 <th className="py-2.5 px-3">Hour</th>
-                <th className="py-2.5 px-3">Tariff Tier</th>
-                <th className="py-2.5 px-3">Rate ($/kWh)</th>
-                <th className="py-2.5 px-3">Solar (MW)</th>
-                <th className="py-2.5 px-3">Load (MW)</th>
-                <th className="py-2.5 px-3">Charge (MW)</th>
-                <th className="py-2.5 px-3">Discharge (MW)</th>
-                <th className="py-2.5 px-3">Unmanaged Import</th>
-                <th className="py-2.5 px-3">Optimized Import</th>
-                <th className="py-2.5 px-3">Battery SoC</th>
+                <th className="py-2.5 px-3">Price period</th>
+                <th className="py-2.5 px-3">Price ($/kWh)</th>
+                <th className="py-2.5 px-3">Solar power (MW)</th>
+                <th className="py-2.5 px-3">Electricity use (MW)</th>
+                <th className="py-2.5 px-3">Battery charging (MW)</th>
+                <th className="py-2.5 px-3">Battery power supplied (MW)</th>
+                <th className="py-2.5 px-3">Grid use without battery (MW)</th>
+                <th className="py-2.5 px-3">Grid use with battery (MW)</th>
+                <th className="py-2.5 px-3">Battery level (%)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-mono">
               {schedule.map((row, idx) => {
                 const isPeak = row.tariff_tier === 'Peak';
-                const isCharging = row.charge_mw > 0.01;
-                const isDischarging = row.discharge_mw > 0.01;
-
                 return (
-                  <tr
-                    key={idx}
-                    className={`hover:bg-slate-50 transition-colors ${
-                      isPeak ? 'bg-orange-50/30' : ''
-                    }`}
-                  >
+                  <tr key={idx} className={isPeak ? 'bg-orange-50/40' : ''}>
                     <td className="py-2.5 px-3 font-semibold text-slate-900">{row.hour}</td>
                     <td className="py-2.5 px-3">
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-sans font-medium ${
-                          isPeak
-                            ? 'bg-red-50 text-red-700 border border-red-200'
-                            : row.tariff_tier === 'Off-Peak'
-                            ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {row.tariff_tier}
-                      </span>
+                      <StatusBadge tone={isPeak ? 'error' : row.tariff_tier === 'Off-Peak' ? 'info' : 'slate'}>
+                        {row.tariff_tier === 'Peak'
+                          ? 'High-price hours'
+                          : row.tariff_tier === 'Off-Peak'
+                            ? 'Low-price hours'
+                            : 'Normal-price hours'}
+                      </StatusBadge>
                     </td>
-                    <td className="py-2.5 px-3 text-slate-700">${row.tariff_rate.toFixed(3)}</td>
-                    <td className="py-2.5 px-3 text-amber-700">{row.solar_mw.toFixed(2)}</td>
-                    <td className="py-2.5 px-3 text-slate-600">{row.demand_mw.toFixed(2)}</td>
-                    <td className="py-2.5 px-3 text-blue-600 font-semibold">
-                      {isCharging ? `+${row.charge_mw.toFixed(2)}` : '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-orange-600 font-semibold">
-                      {isDischarging ? `-${row.discharge_mw.toFixed(2)}` : '—'}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-500">{row.unmanaged_import_mw.toFixed(2)}</td>
-                    <td className="py-2.5 px-3 text-emerald-700 font-semibold">{row.managed_import_mw.toFixed(2)}</td>
-                    <td className="py-2.5 px-3 font-semibold text-purple-700">{row.battery_soc_pct.toFixed(1)}%</td>
+                    <td className="py-2.5 px-3">${row.tariff_rate?.toFixed(3)}</td>
+                    <td className="py-2.5 px-3 text-amber-700">{row.solar_mw?.toFixed(2)}</td>
+                    <td className="py-2.5 px-3">{row.demand_mw?.toFixed(2)}</td>
+                    <td className="py-2.5 px-3 text-emerald-700">{row.charge_mw > 0.01 ? `+${row.charge_mw.toFixed(2)}` : '—'}</td>
+                    <td className="py-2.5 px-3 text-blue-700">{row.discharge_mw > 0.01 ? `-${row.discharge_mw.toFixed(2)}` : '—'}</td>
+                    <td className="py-2.5 px-3 text-orange-700">{row.unmanaged_import_mw?.toFixed(2)}</td>
+                    <td className="py-2.5 px-3 text-teal-700">{row.managed_import_mw?.toFixed(2)}</td>
+                    <td className="py-2.5 px-3">{row.battery_soc_pct?.toFixed(1)}%</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

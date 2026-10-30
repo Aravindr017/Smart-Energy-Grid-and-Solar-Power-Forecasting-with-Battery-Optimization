@@ -70,7 +70,7 @@ def load_raw_openmeteo(plant_id: int = 1) -> pd.DataFrame:
         filename = "open-meteo-14.38N77.50E491m.csv"
     else:
         raise ValueError(f"Invalid plant_id: {plant_id}. Expected 1 or 2.")
-    
+
     filepath = raw_dir / filename
     if not filepath.exists():
         raise FileNotFoundError(f"Open-Meteo file not found: {filepath}")
@@ -80,28 +80,37 @@ def load_raw_openmeteo(plant_id: int = 1) -> pd.DataFrame:
 def load_processed_handoff(plant_id: int = 1, freq: str = "15min") -> pd.DataFrame:
     """
     Loads post-EDA AI/ML handoff datasets.
-    
+
     Args:
         plant_id: 1 or 2
         freq: '15min' (or '15min_inverter' - 68k rows), '15min_plant' (3.2k rows), or 'hourly' (816 rows)
     """
     _, processed_dir = get_data_dirs()
-    
+
     mapping = {
         "15min": f"plant{plant_id}_ai_ml_handoff_15min.csv",
         "15min_inverter": f"plant{plant_id}_ai_ml_handoff_15min.csv",
         "15min_plant": f"plant{plant_id}_ai_ml_handoff_15min_plantlevel.csv",
         "hourly": f"plant{plant_id}_ai_ml_handoff_hourly.csv",
     }
-    
+
     if freq not in mapping:
         raise ValueError(f"Unsupported frequency: '{freq}'. Choose from {list(mapping.keys())}")
-        
+
     filepath = processed_dir / mapping[freq]
     if not filepath.exists():
         raise FileNotFoundError(f"Processed handoff file not found: {filepath}")
-        
+
     df = pd.read_csv(filepath)
     if "time" in df.columns:
         df["time"] = pd.to_datetime(df["time"])
     return df
+
+
+def fetch_live_weather(plant_id: int = 1, forecast_days: int = 2) -> dict:
+    """
+    Convenience wrapper to retrieve live Open-Meteo weather forecasts
+    for Plant 1 or Plant 2 with automatic fallback to historical CSV.
+    """
+    from src.data.weather_live import fetch_live_openmeteo_forecast
+    return fetch_live_openmeteo_forecast(plant_id=plant_id, forecast_days=forecast_days)

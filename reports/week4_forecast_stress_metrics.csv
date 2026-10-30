@@ -1,0 +1,7 @@
+scenario_name,scenario_label,is_synthetic,mean_actual_generation_kw,peak_actual_generation_kw,ridge_daylight_rmse_kw,ridge_daylight_mae_kw,ridge_daylight_r2,lgb_daylight_rmse_kw,lgb_daylight_mae_kw,lgb_daylight_r2
+normal,Normal Baseline Conditions,False,5994.44,26293.79,3860.56,3053.74,0.7155,3590.81,2792.61,0.7539
+heavy_cloud,Heavy Cloud Cover Overcast,True,2997.22,13146.9,1761.9,1431.69,0.763,6197.23,5364.31,-1.932
+monsoon_prolonged,Monsoon Prolonged Low-Irradiance,True,1498.61,6573.45,991.03,869.75,0.7001,8356.23,7445.88,-20.323
+sudden_drop,Sudden Midday Irradiance Drop,True,3775.48,22417.39,2672.59,2006.88,0.7747,6624.06,5253.1,-0.3839
+multi_day_low,Multi-Day Continuous Solar Deficit,True,2397.78,10517.52,1387.86,1143.48,0.7702,7060.08,6225.64,-4.9458
+recovery,Post-Storm Rapid Solar Recovery,True,3724.12,25740.47,2532.66,1774.24,0.864,6312.45,5116.1,0.155
